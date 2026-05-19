@@ -1,0 +1,578 @@
+// ══════════════════════════════════════════════════════════════════════
+//  prisma/schema.prisma
+//  LocalHub — Complete Database Schema
+//
+//  Setup:
+//    npm install prisma @prisma/client
+//    npx prisma init
+//    npx prisma migrate dev --name init
+//    npx prisma generate
+//
+//  DB: PostgreSQL (Supabase free tier recommended)
+//  Set DATABASE_URL in .env
+// ══════════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────────
+
+enum Country {
+  uk
+  bd
+}
+
+enum UserRole {
+  customer
+  vendor
+  driver
+  job_seeker
+  admin
+}
+
+enum OrderStatus {
+  pending
+  accepted
+  ready
+  dispatched
+  delivered
+  rejected
+  refunded
+}
+
+enum VendorType {
+  ecommerce
+  grocery
+  food
+}
+
+enum VendorStatus {
+  pending
+  active
+  suspended
+}
+
+enum DriverStatus {
+  pending
+  active
+  suspended
+}
+
+enum PromoType {
+  percent
+  fixed
+}
+
+enum PromoStatus {
+  pending
+  active
+  rejected
+  expired
+}
+
+enum PaymentMethod {
+  card
+  cash
+  bkash
+  nagad
+  apple_pay
+  google_pay
+}
+
+enum NotifType {
+  order
+  payment
+  review
+  stock
+  job
+  promo
+  system
+  referral
+}
+
+enum ChatStatus {
+  active
+  archived
+}
+
+enum LoyaltyTier {
+  bronze
+  silver
+  gold
+  platinum
+}
+
+// ─── USER ─────────────────────────────────────────────────────────────
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  name            String
+  role            UserRole  @default(customer)
+  country         Country
+  avatar          String?   // emoji
+  isEmailVerified Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Loyalty
+  loyaltyPoints   Int       @default(0)
+  loyaltyCredits  Float     @default(0)
+  loyaltyTier     LoyaltyTier @default(bronze)
+
+  // Referral
+  referralCode    String    @unique @default(cuid())
+  referredById    String?
+  referredBy      User?     @relation("Referrals", fields: [referredById], references: [id])
+  referrals       User[]    @relation("Referrals")
+  referralCreditEarned Float @default(0)
+
+  // Job seeker preferences
+  jobCategoryIds  Int[]     @default([])
+
+  // Relations
+  vendor          Vendor?
+  driver          Driver?
+  orders          Order[]
+  reviews         Review[]
+  notifications   Notification[]
+  sentMessages    Message[]   @relation("SentMessages")
+  conversations   ConversationParticipant[]
+  pointsHistory   PointsTransaction[]
+  appliedJobs     JobApplication[]
+  refreshTokens   RefreshToken[]
+  sessions        Session[]
+
+  @@index([email])
+  @@index([country])
+  @@index([role])
+  @@index([referralCode])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  isRevoked Boolean  @default(false)
+
+  @@index([token])
+  @@index([userId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+}
+
+// ─── VENDOR ───────────────────────────────────────────────────────────
+
+model Vendor {
+  id          String       @id @default(cuid())
+  userId      String       @unique
+  user        User         @relation(fields: [userId], references: [id])
+  name        String
+  description String?
+  country     Country
+  type        VendorType
+  status      VendorStatus @default(pending)
+  logoEmoji   String?
+  totalSales  Float        @default(0)
+  commissionOwed Float     @default(0)
+  commissionRate Float     @default(10) // percentage, admin-editable
+  joinedAt    DateTime     @default(now())
+
+  products    Product[]
+  orders      Order[]      @relation("VendorOrders")
+  promos      Promo[]
+  reviews     Review[]     @relation("VendorReviews")
+
+  @@index([country])
+  @@index([type])
+  @@index([status])
+}
+
+// ─── DRIVER ───────────────────────────────────────────────────────────
+
+model Driver {
+  id              String       @id @default(cuid())
+  userId          String       @unique
+  user            User         @relation(fields: [userId], references: [id])
+  country         Country
+  vehicle         String       // "Electric Bike" | "E-Scooter"
+  status          DriverStatus @default(pending)
+  isOnline        Boolean      @default(false)
+  rating          Float        @default(5.0)
+  totalTrips      Int          @default(0)
+  totalEarnings   Float        @default(0)
+  monthEarnings   Float        @default(0)
+  commissionPaid  Float        @default(0)
+  badge           String?
+
+  // Pricing model: quote = max(minCharge, base + dist * perUnit)
+  pricingBase     Float        @default(1.50) // £ or ৳
+  pricingPerUnit  Float        @default(0.60) // per mile/km
+  pricingMin      Float        @default(2.50)
+  pricingMaxDist  Float        @default(8)    // miles or km
+
+  // Last known GPS (updated via Socket.io)
+  lastLat         Float?
+  lastLng         Float?
+  lastSeen        DateTime?
+
+  deliveries      Order[]      @relation("DriverOrders")
+  reviews         Review[]     @relation("DriverReviews")
+  earnings        DriverEarning[]
+
+  @@index([country])
+  @@index([status])
+  @@index([isOnline])
+}
+
+model DriverEarning {
+  id          String   @id @default(cuid())
+  driverId    String
+  driver      Driver   @relation(fields: [driverId], references: [id])
+  weekLabel   String   // "Week 1", "2025-W01"
+  gross       Float
+  commission  Float
+  net         Float
+  trips       Int
+  createdAt   DateTime @default(now())
+
+  @@index([driverId])
+}
+
+// ─── PRODUCT ──────────────────────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(cuid())
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+  country     Country
+  name        String
+  description String?
+  price       Float
+  emoji       String?
+  color       String?
+  category    String
+  sizes       String[] @default([])
+  stock       Int      @default(0)
+  totalSales  Int      @default(0)
+  totalRevenue Float   @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orderItems  OrderItem[]
+  reviews     Review[]   @relation("ProductReviews")
+
+  @@index([vendorId])
+  @@index([country])
+  @@index([category])
+}
+
+// ─── ORDER ────────────────────────────────────────────────────────────
+
+model Order {
+  id              String        @id // "ORD-XXXXXX"
+  customerId      String
+  customer        User          @relation(fields: [customerId], references: [id])
+  vendorId        String?
+  vendor          Vendor?       @relation("VendorOrders", fields: [vendorId], references: [id])
+  driverId        String?
+  driver          Driver?       @relation("DriverOrders", fields: [driverId], references: [id])
+  country         Country
+  status          OrderStatus   @default(pending)
+  subtotal        Float
+  discount        Float         @default(0)
+  deliveryFee     Float         @default(0)
+  platformFee     Float
+  total           Float
+  payment         PaymentMethod
+  paymentRef      String?       // Stripe/bKash transaction ID
+  isPaid          Boolean       @default(false)
+
+  // Address
+  addressLine1    String?
+  addressLine2    String?
+  addressCity     String?
+  addressPostcode String?
+  addressLat      Float?
+  addressLng      Float?
+
+  // Delivery
+  pickupAddress   String?
+  pickupLat       Float?
+  pickupLng       Float?
+  distanceMiles   Float?
+
+  // Promo
+  promoId         String?
+  promo           Promo?        @relation(fields: [promoId], references: [id])
+
+  // Points
+  pointsEarned    Int           @default(0)
+
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deliveredAt     DateTime?
+
+  items           OrderItem[]
+  statusHistory   OrderStatusHistory[]
+
+  @@index([customerId])
+  @@index([vendorId])
+  @@index([driverId])
+  @@index([country])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  name      String
+  price     Float
+  qty       Int     @default(1)
+  emoji     String?
+  from      String? // restaurant name for food items
+
+  @@index([orderId])
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(cuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id])
+  status    OrderStatus
+  note      String?
+  createdAt DateTime    @default(now())
+
+  @@index([orderId])
+}
+
+// ─── JOB ──────────────────────────────────────────────────────────────
+
+model JobCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  icon      String
+  isNew     Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  jobs      Job[]
+}
+
+model Job {
+  id          String      @id @default(cuid())
+  country     Country
+  categoryId  Int
+  category    JobCategory @relation(fields: [categoryId], references: [id])
+  title       String
+  company     String
+  location    String
+  salary      String
+  minExp      Int         @default(0)
+  description String
+  isUrgent    Boolean     @default(false)
+  isActive    Boolean     @default(true)
+  postedById  String?     // vendor/employer userId
+  weeklyRate  Float       // cost paid per week
+  expiresAt   DateTime
+  createdAt   DateTime    @default(now())
+
+  applications JobApplication[]
+
+  @@index([country])
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+model JobApplication {
+  id          String   @id @default(cuid())
+  jobId       String
+  job         Job      @relation(fields: [jobId], references: [id])
+  applicantId String
+  applicant   User     @relation(fields: [applicantId], references: [id])
+  name        String
+  email       String
+  coverLetter String?
+  cvUrl       String?  // S3/R2 URL
+  createdAt   DateTime @default(now())
+
+  @@unique([jobId, applicantId])
+  @@index([jobId])
+  @@index([applicantId])
+}
+
+// ─── PROMO ────────────────────────────────────────────────────────────
+
+model Promo {
+  id          String      @id @default(cuid())
+  vendorId    String
+  vendor      Vendor      @relation(fields: [vendorId], references: [id])
+  country     Country
+  title       String
+  description String
+  discount    Float
+  type        PromoType
+  minOrder    Float
+  category    String?
+  emoji       String?
+  color       String?
+  status      PromoStatus @default(pending)
+  expiresAt   DateTime
+  createdAt   DateTime    @default(now())
+
+  orders      Order[]
+
+  @@index([country])
+  @@index([status])
+  @@index([vendorId])
+}
+
+// ─── REVIEW ───────────────────────────────────────────────────────────
+
+model Review {
+  id         String   @id @default(cuid())
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id])
+  rating     Int      // 1–5
+  text       String?
+  createdAt  DateTime @default(now())
+
+  // Polymorphic review targets (only one set)
+  productId  String?
+  product    Product? @relation("ProductReviews", fields: [productId], references: [id])
+  vendorId   String?
+  vendor     Vendor?  @relation("VendorReviews", fields: [vendorId], references: [id])
+  driverId   String?
+  driver     Driver?  @relation("DriverReviews", fields: [driverId], references: [id])
+
+  @@index([authorId])
+  @@index([productId])
+  @@index([driverId])
+  @@index([vendorId])
+}
+
+// ─── CHAT ─────────────────────────────────────────────────────────────
+
+model Conversation {
+  id           String    @id @default(cuid())
+  status       ChatStatus @default(active)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  lastReadAt     DateTime?
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderId       String
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id])
+  text           String
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@index([senderId])
+}
+
+// ─── NOTIFICATIONS ────────────────────────────────────────────────────
+
+model Notification {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id])
+  type      NotifType
+  icon      String?
+  title     String
+  body      String
+  isRead    Boolean     @default(false)
+  priority  String      @default("normal") // "high" | "normal" | "low"
+  link      String?     // deep link
+  createdAt DateTime    @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// ─── LOYALTY ──────────────────────────────────────────────────────────
+
+model PointsTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  type        String   // "earn" | "redeem" | "expire" | "bonus"
+  points      Int      // positive = earn, negative = redeem
+  description String
+  orderId     String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ─── PLATFORM CONFIG ──────────────────────────────────────────────────
+
+model PlatformConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+// Default config seeds (run via prisma/seed.ts):
+// ecommerce_rate_uk   = "10"
+// grocery_rate_uk     = "10"
+// food_rate_uk        = "10"
+// delivery_rate_uk    = "10"
+// job_week_rate_uk    = "4.99"
+// job_week_rate_bd    = "299"
+// points_per_gbp      = "10"
+// points_per_bdt      = "1"
+// points_to_gbp       = "100"   (100 pts = £1)
+// points_to_bdt       = "1000"  (1000 pts = ৳1)
+// referral_reward_uk  = "5.00"
+// referral_reward_bd  = "500"
