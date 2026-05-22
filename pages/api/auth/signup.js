@@ -5,6 +5,19 @@ import {
   generateReferralCode, validateSignupInput,
 } from "../../../lib/auth";
 import { ok, err, methodNotAllowed } from "../../../lib/apiHelpers";
+import { sendVerificationEmail, sendWelcomeEmail } from "../../../lib/email";
+import crypto from "crypto";
+
+async function createVerificationToken(userId, email) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  await prisma.platformConfig.upsert({
+    where: { key: `verify:${token}` },
+    create: { key: `verify:${token}`, value: JSON.stringify({ userId, email, expires: expires.toISOString() }) },
+    update: { value: JSON.stringify({ userId, email, expires: expires.toISOString() }) },
+  });
+  return token;
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return methodNotAllowed(res, ["POST"]);
@@ -72,6 +85,12 @@ export default async function handler(req, res) {
   const refreshToken = signRefreshToken(user.id);
   await saveRefreshToken(user.id, refreshToken);
   setRefreshCookie(res, refreshToken);
+
+  // Send emails async — don't block the response
+  Promise.allSettled([
+    createVerificationToken(user.id, user.email).then(token => sendVerificationEmail(user, token)),
+    sendWelcomeEmail(user),
+  ]).catch(console.error);
 
   const { passwordHash: _, ...safeUser } = user;
   return ok(res, { user: safeUser, accessToken }, 201);
