@@ -1,39 +1,39 @@
 {
-  "name": "localhub-app",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "prisma generate && next build --no-turbopack",
-    "start": "next start",
-    "lint": "eslint"
-  },
-  "dependencies": {
-    "@aws-sdk/client-s3": "^3.1049.0",
-    "@aws-sdk/s3-request-presigner": "^3.1049.0",
-    "@prisma/adapter-neon": "^7.8.0",
-    "@prisma/client": "5.22.0",
-    "axios": "^1.16.1",
-    "bcryptjs": "^3.0.3",
-    "cookie": "^1.1.1",
-    "firebase": "^12.13.0",
-    "firebase-admin": "^13.10.0",
-    "jsonwebtoken": "^9.0.3",
-    "nanoid": "^5.1.11",
-    "next": "16.2.6",
-    "prisma": "5.22.0",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3",
-    "stripe": "^22.1.1"
-  },
-  "devDependencies": {
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.6",
-    "typescript": "^5"
-  }
+    "name":  "localhub-app",
+    "version":  "0.1.0",
+    "private":  true,
+    "scripts":  {
+                    "dev":  "next dev",
+                    "build":  "prisma generate \u0026\u0026 next build",
+                    "start":  "next start",
+                    "lint":  "eslint"
+                },
+    "dependencies":  {
+                         "@aws-sdk/client-s3":  "^3.1049.0",
+                         "@aws-sdk/s3-request-presigner":  "^3.1049.0",
+                         "@prisma/adapter-neon":  "^7.8.0",
+                         "@prisma/client":  "5.22.0",
+                         "axios":  "^1.16.1",
+                         "bcryptjs":  "^3.0.3",
+                         "cookie":  "^1.1.1",
+                         "firebase":  "^12.13.0",
+                         "firebase-admin":  "^13.10.0",
+                         "jsonwebtoken":  "^9.0.3",
+                         "nanoid":  "^5.1.11",
+                         "next":  "16.2.6",
+                         "prisma":  "5.22.0",
+                         "react":  "19.2.4",
+                         "react-dom":  "19.2.4",
+                         "socket.io":  "^4.8.3",
+                         "socket.io-client":  "^4.8.3",
+                         "stripe":  "^22.1.1"
+                     },
+    "devDependencies":  {
+                            "@types/node":  "^20",
+                            "@types/react":  "^19",
+                            "@types/react-dom":  "^19",
+                            "eslint":  "^9",
+                            "eslint-config-next":  "16.2.6",
+                            "typescript":  "^5"
+                        }
 }

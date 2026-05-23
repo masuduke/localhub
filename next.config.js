@@ -1,4 +1,10 @@
 /** @type {import('next').NextConfig} */
-module.exports = {
-  turbopack: false
+const nextConfig = {
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.optimization.splitChunks = false
+    }
+    return config
+  }
 }
+module.exports = nextConfig
