@@ -2018,3 +2018,9 @@ function ModalWrap({children,onClose,wide}){
     </div>
   );
 }
+
+
+// Force server-side rendering — this app requires client-side interactivity
+export function getServerSideProps() {
+  return { props: {} };
+}
