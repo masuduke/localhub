@@ -1,5 +1,48 @@
 import { useState, useRef, useEffect } from "react";
 
+// ─── API CLIENT ───────────────────────────────────────────────────────────
+let _accessToken = null;
+let _refreshing = null;
+function setAccessToken(t) { _accessToken = t; }
+function getAccessToken() { return _accessToken; }
+function clearTokens() { _accessToken = null; }
+
+async function apiFetch(url, options = {}) {
+  const headers = { "Content-Type": "application/json", ...options.headers };
+  if (_accessToken) headers["Authorization"] = `Bearer ${_accessToken}`;
+  const res = await fetch(url, { ...options, headers, credentials: "include" });
+  if (res.status === 401 && !options._retry) {
+    if (!_refreshing) _refreshing = silentRefresh().finally(() => { _refreshing = null; });
+    await _refreshing;
+    if (_accessToken) return apiFetch(url, { ...options, _retry: true });
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(json.error || "Request failed"); e.status = res.status; throw e; }
+  return json.data;
+}
+
+async function silentRefresh() {
+  try {
+    const data = await fetch("/api/auth/refresh", { method: "POST", credentials: "include" }).then(r => r.json());
+    if (data?.data?.accessToken) { _accessToken = data.data.accessToken; return data.data; }
+  } catch { _accessToken = null; }
+  return null;
+}
+
+const API = {
+  login: (email, password) => apiFetch("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  signup: (payload) => apiFetch("/api/auth/signup", { method: "POST", body: JSON.stringify(payload) }),
+  logout: () => apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {}),
+  me: () => apiFetch("/api/auth/me"),
+  refresh: () => silentRefresh(),
+  products: (params = {}) => { const q = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([,v])=>v))); return apiFetch(`/api/products?${q}`); },
+  jobs: (params = {}) => { const q = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([,v])=>v))); return apiFetch(`/api/jobs?${q}`); },
+  notifications: () => apiFetch("/api/notifications"),
+  markAllRead: () => apiFetch("/api/notifications", { method: "PATCH" }),
+  createOrder: (payload) => apiFetch("/api/orders", { method: "POST", body: JSON.stringify(payload) }),
+  createIntent: (payload) => apiFetch("/api/payments/create-intent", { method: "POST", body: JSON.stringify(payload) }),
+};
+
 // ══════════════════════════════════════════════════════════════════════════
 //  LOCALHUB v6 — Complete Platform
 //  NEW in v6:
@@ -881,8 +924,33 @@ export default function App(){
   const [appliedPromo,setAppliedPromo]=useState(null);
   const [globalSearch,setGS]   =useState("");
 
+  // Silent refresh on mount
+  useEffect(()=>{
+    (async()=>{
+      try{const data=await API.refresh();if(data?.user){setUser(data.user);}}catch(_){}
+    })();
+  },[]);
+
+  // Load real products
+  useEffect(()=>{
+    API.products({country}).then(data=>{
+      if(data?.products?.length) setProducts(prev=>{
+        const dbIds=new Set(data.products.map(p=>String(p.id)));
+        const seedOnly=prev.filter(p=>!dbIds.has(String(p.id)));
+        return [...data.products,...seedOnly];
+      });
+    }).catch(()=>{});
+  },[country]);
+
+  // Load notifications (real if logged in with token, mock for demo)
   useEffect(()=>{
     if(!user) return;
+    if(_accessToken){
+      API.notifications().then(data=>{
+        if(data?.notifications?.length) setNotifs(data.notifications.map(n=>({...n,read:n.isRead,time:new Date(n.createdAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})})));
+      }).catch(()=>{});
+      return;
+    }
     const base={vendor:[
       {id:"n1",icon:"📦",title:"New Order Received",body:"ORD-A1B2C3 · £84.97",time:"2 min ago",read:false},
       {id:"n2",icon:"💰",title:"Payment Received",body:"£89.99 confirmed",time:"15 min ago",read:false},
@@ -921,21 +989,47 @@ export default function App(){
   },[user?.id]);
 
   const fire=(msg,t="ok")=>{setToast({msg,t});setTimeout(()=>setToast(null),4500);};
-  const login=(u)=>{setUser(u);setModal(null);fire(`Welcome, ${u.name}! ${u.avatar}`);};
-  const logout=()=>{setUser(null);setTab("home");setNotifs([]);};
+  const login=(u)=>{
+    // Called with full user object (from demo click or API response)
+    if(u.accessToken){setAccessToken(u.accessToken);}
+    const{accessToken:_at,...safeUser}=u;
+    setUser(safeUser);setModal(null);fire(`Welcome, ${safeUser.name}! ${safeUser.avatar||"👋"}`);
+  };
+  const logout=async()=>{if(_accessToken)await API.logout();clearTokens();setUser(null);setTab("home");setNotifs([]);};
   const addToCart=(item,src)=>{setCart(c=>[...c,{...item,_src:src||"shop"}]);fire(`${item.name} added 🛒`);};
 
-  const placeOrder=(order)=>{
-    const id="ORD-"+Math.random().toString(36).slice(2,8).toUpperCase();
-    const pts=getOrderPoints(order.total,order.country||user?.country||"uk");
-    if(user){
+  const placeOrder=async(order)=>{
+    const country=order.country||user?.country||"uk";
+    const pts=getOrderPoints(order.total,country);
+    let id="ORD-"+Math.random().toString(36).slice(2,8).toUpperCase();
+    // Try real API if logged in with token
+    if(_accessToken&&user){
+      try{
+        const data=await API.createOrder({
+          items:order.items||[],
+          vendorId:order.vendorId||null,
+          driverId:order.driverId||null,
+          subtotal:order.subtotal||order.total,
+          discount:order.discount||0,
+          deliveryFee:order.delivery||order.deliveryFee||0,
+          platformFee:+(order.total*0.1).toFixed(2),
+          total:order.total,
+          payment:order.payment||"card",
+          addressLine1:order.address?.line1||"",
+          addressCity:order.address?.city||"",
+          country,
+        });
+        if(data?.order?.id) id=data.order.id;
+        if(data?.pointsEarned) setUser(u=>({...u,points:(u.loyaltyPoints||u.points||0)+data.pointsEarned}));
+      }catch(e){console.error("Order API error:",e);}
+    } else if(user){
       setUser(u=>({...u,points:(u.points||0)+pts}));
-      fire(`✅ Order ${id} placed! +${pts} loyalty points earned! ⭐`);
     }
+    fire(`✅ Order ${id} placed! +${pts} loyalty points earned! ⭐`);
     const newO={...order,id,status:"confirmed",time:new Date().toLocaleTimeString()};
     setOrders(o=>[...o,newO]);
     if(order.vendorId){
-      setVO(vo=>[{id,vendorId:order.vendorId,customer:user?.name||"Customer",address:`${order.address?.line1||""} ${order.address?.city||""}`.trim()||"Customer address",items:order.items||[],total:order.total,status:"pending",placed:new Date().toLocaleTimeString(),country:order.country,payment:order.payment||"card"},...vo]);
+      setVO(vo=>[{id,vendorId:order.vendorId,customer:user?.name||"Customer",address:`${order.address?.line1||""} ${order.address?.city||""}`.trim()||"Customer address",items:order.items||[],total:order.total,status:"pending",placed:new Date().toLocaleTimeString(),country,payment:order.payment||"card"},...vo]);
     }
     setCart([]);
     return id;
@@ -952,7 +1046,7 @@ export default function App(){
   const updateVendor=(id,patch)=>setVendors(vs=>vs.map(v=>v.id===id?{...v,...patch}:v));
   const updateVendorOrder=(id,status)=>{setVO(vo=>vo.map(o=>o.id===id?{...o,status}:o));fire(`Order ${id} → ${status}`);};
   const markNotifRead=(id)=>setNotifs(n=>n.map(x=>x.id===id?{...x,read:true}:x));
-  const markAllRead=()=>setNotifs(n=>n.map(x=>({...x,read:true})));
+  const markAllRead=()=>{setNotifs(n=>n.map(x=>({...x,read:true})));if(_accessToken)API.markAllRead().catch(()=>{});};
 
   const approvePromo=(id)=>{setPromos(ps=>ps.map(p=>p.id===id?{...p,status:"active"}:p));fire("✅ Promo approved and live!");};
   const rejectPromo=(id)=>{setPromos(ps=>ps.map(p=>p.id===id?{...p,status:"rejected"}:p));fire("Promo rejected.");};
@@ -1803,8 +1897,20 @@ function DriverDash({user,drivers,updateDriver,country,rates}){
 //  AUTH MODALS
 // ═══════════════════════════════════════════════════════════════════════════
 function LoginModal({accounts,onLogin,onClose,onSwitch}){
-  const [email,setEmail]=useState(""),[pass,setPass]=useState(""),[err,setErr]=useState("");
-  const attempt=()=>{const u=accounts.find(a=>a.email===email&&a.password===pass);u?onLogin(u):setErr("Invalid credentials.");};
+  const [email,setEmail]=useState(""),[pass,setPass]=useState(""),[errMsg,setErrMsg]=useState(""),[loading,setLoading]=useState(false);
+  const attempt=async()=>{
+    setErrMsg("");setLoading(true);
+    try{
+      const data=await API.login(email,pass);
+      // Map API response to app user shape
+      const avatarMap={customer:"🛒",vendor:"🏪",driver:"🛵",job_seeker:"💼",admin:"👑"};
+      onLogin({...data.user,accessToken:data.accessToken,avatar:data.user.avatar||avatarMap[data.user.role]||"👤",points:data.user.loyaltyPoints||0,credits:data.user.loyaltyCredits||0,referralCode:data.user.referralCode||""});
+    }catch(e){
+      // Fallback to demo accounts if API fails
+      const u=accounts.find(a=>a.email===email&&a.password===pass);
+      if(u){onLogin(u);}else{setErrMsg(e.message||"Invalid email or password");}
+    }finally{setLoading(false);}
+  };
   return(
     <ModalWrap onClose={onClose}>
       <h2 style={{fontFamily:"Syne,sans-serif",fontSize:20,fontWeight:800,color:NV,marginBottom:4}}>Welcome back</h2>
@@ -1821,9 +1927,9 @@ function LoginModal({accounts,onLogin,onClose,onSwitch}){
         </div>
       </div>
       <Inp label="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)}/>
-      <Inp label="Password" type="password" value={pass} onChange={e=>setPass(e.target.value)}/>
-      {err&&<div style={{color:RD,fontSize:12,marginBottom:10}}>{err}</div>}
-      <Btn primary full onClick={attempt}>Log In</Btn>
+      <Inp label="Password" type="password" value={pass} onChange={e=>setPass(e.target.value)} style={{}} />
+      {errMsg&&<div style={{color:RD,fontSize:12,marginBottom:10,background:"#fee2e2",padding:"8px 12px",borderRadius:8}}>{errMsg}</div>}
+      <Btn primary full onClick={attempt} disabled={loading}>{loading?"Signing in...":"Log In"}</Btn>
       <div style={{textAlign:"center",marginTop:10,fontSize:13,color:SL}}>No account? <button onClick={onSwitch} style={{background:"none",border:"none",color:T,fontWeight:700,cursor:"pointer",fontSize:13}}>Sign Up</button></div>
     </ModalWrap>
   );
@@ -1834,7 +1940,21 @@ function SignupModal({jobCats,onSignup,onClose,onSwitch}){
   const [f,setF]=useState({name:"",email:"",password:"",country:"uk",role:"customer",selectedCats:[],refCode:""});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const avatarMap={customer:"🛒",vendor:"🏪",driver:"🛵",job_seeker:"💼"};
-  const submit=()=>{if(!f.name||!f.email)return;onSignup({...f,id:"u_"+Date.now(),avatar:avatarMap[f.role]||"👤",points:f.refCode?500:0,credits:f.refCode?5:0,referralCode:makeCode(f.name),referralCount:0});};
+  const [submitErr,setSubmitErr]=useState(""),[submitting,setSubmitting]=useState(false);
+  const submit=async()=>{
+    if(!f.name||!f.email||!f.password)return;
+    setSubmitErr("");setSubmitting(true);
+    try{
+      const data=await API.signup({name:f.name,email:f.email,password:f.password,country:f.country,role:f.role,referralCode:f.refCode||undefined});
+      const avatarM={customer:"🛒",vendor:"🏪",driver:"🛵",job_seeker:"💼",admin:"👑"};
+      onSignup({...data.user,accessToken:data.accessToken,avatar:data.user.avatar||avatarM[data.user.role]||"👤",points:data.user.loyaltyPoints||0,credits:data.user.loyaltyCredits||0,referralCode:data.user.referralCode||makeCode(f.name),referralCount:0});
+    }catch(e){
+      // Fallback: create local user if API fails
+      if(e.status===409){setSubmitErr("An account with this email already exists.");setSubmitting(false);return;}
+      const avatarM={customer:"🛒",vendor:"🏪",driver:"🛵",job_seeker:"💼"};
+      onSignup({...f,id:"u_"+Date.now(),avatar:avatarM[f.role]||"👤",points:f.refCode?500:0,credits:f.refCode?5:0,referralCode:makeCode(f.name),referralCount:0});
+    }finally{setSubmitting(false);}
+  };
   return(
     <ModalWrap onClose={onClose} wide>
       <div style={{display:"flex",gap:5,marginBottom:18}}>{[1,2,3].map(n=><div key={n} style={{flex:1,height:4,borderRadius:4,background:step>=n?T:"#e2e8f0"}}/>)}</div>
@@ -1877,7 +1997,8 @@ function SignupModal({jobCats,onSignup,onClose,onSwitch}){
         {f.refCode&&<div style={{background:"#dcfce7",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:13,color:GR}}>⭐ Referral bonus ready: £5 credit + 500 pts after your first order!</div>}
         <div style={{display:"flex",gap:10}}>
           <Btn onClick={()=>setStep(2)} style={{flex:1}}>← Back</Btn>
-          <Btn primary onClick={submit} style={{flex:2}}>Create Account 🎉</Btn>
+          {submitErr&&<div style={{color:RD,fontSize:12,marginBottom:8,background:"#fee2e2",padding:"8px 12px",borderRadius:8}}>{submitErr}</div>}
+        <Btn primary onClick={submit} disabled={submitting} style={{flex:2}}>{submitting?"Creating...":"Create Account 🎉"}</Btn>
         </div>
       </>)}
     </ModalWrap>
