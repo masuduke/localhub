@@ -41,6 +41,7 @@ const API = {
   markAllRead: () => apiFetch("/api/notifications", { method: "PATCH" }),
   createOrder: (payload) => apiFetch("/api/orders", { method: "POST", body: JSON.stringify(payload) }),
   createIntent: (payload) => apiFetch("/api/payments/create-intent", { method: "POST", body: JSON.stringify(payload) }),
+  applyToJob: (jobId, payload) => apiFetch(`/api/jobs/${jobId}/apply`, { method: "POST", body: JSON.stringify(payload) }),
 };
 
 function shellCard(extra = {}) {
@@ -1069,6 +1070,22 @@ export default function App(){
   const updateDriver=(id,patch)=>setDrivers(ds=>ds.map(d=>d.id===id?{...d,...patch}:d));
   const updateVendor=(id,patch)=>setVendors(vs=>vs.map(v=>v.id===id?{...v,...patch}:v));
   const updateVendorOrder=(id,status)=>{setVO(vo=>vo.map(o=>o.id===id?{...o,status}:o));fire(`Order ${id} → ${status}`);};
+  const applyToJob=async(jobId)=>{
+    if(!user){setModal("login");return;}
+    const target = jobs.find(j=>String(j.id)===String(jobId));
+    if(!target) return;
+    if((target.applied||[]).includes(user.id)){fire("You already applied to this job.");return;}
+    if(_accessToken){
+      try{
+        await API.applyToJob(jobId,{name:user.name,email:user.email,coverLetter:"Applied from LocalHub app"});
+      }catch(e){
+        fire(e.message||"Could not submit application right now.");
+        return;
+      }
+    }
+    setJobs(list=>list.map(j=>String(j.id)===String(jobId)?{...j,applied:[...(j.applied||[]),user.id]}:j));
+    fire(`Application sent for ${target.title}`);
+  };
   const markNotifRead=(id)=>setNotifs(n=>n.map(x=>x.id===id?{...x,read:true}:x));
   const markAllRead=()=>{setNotifs(n=>n.map(x=>({...x,read:true})));if(_accessToken)API.markAllRead().catch(()=>{});};
 
@@ -1175,7 +1192,7 @@ export default function App(){
         {tab==="ecommerce"&&<EcommercePage products={products} country={country} addToCart={addToCart} rates={rates} cart={cart}/>}
         {tab==="grocery"  &&<GroceryPage   items={INIT_GROCERY.filter(i=>i.country===country)} country={country} addToCart={addToCart} cart={cart}/>}
         {tab==="food"     &&<FoodPage       restaurants={restaurants.filter(r=>r.country===country)} country={country} addToCart={addToCart}/>}
-        {tab==="jobs"     &&<JobsPage       jobs={jobs} jobCats={jobCats} user={user} country={country} setModal={setModal} globalSearch={globalSearch}/>}
+        {tab==="jobs"     &&<JobsPage       jobs={jobs} jobCats={jobCats} user={user} country={country} setModal={setModal} globalSearch={globalSearch} onApply={applyToJob}/>}
         {tab==="delivery" &&<DeliveryPage   drivers={drivers.filter(d=>d.country===country&&d.status==="active")} country={country} rates={rates} placeOrder={placeOrder} user={user} setModal={setModal}/>}
         {tab==="loyalty"  &&user&&<LoyaltyPage user={user} setUser={setUser} country={country}/>}
         {tab==="loyalty"  &&!user&&<SignInPrompt msg="Sign in to view your loyalty points and rewards." setModal={setModal}/>}
@@ -1403,7 +1420,7 @@ function FoodPage({restaurants,country,addToCart}){
   );
 }
 
-function JobsPage({jobs,jobCats,user,country,setModal,globalSearch}){
+function JobsPage({jobs,jobCats,user,country,setModal,globalSearch,onApply}){
   const [selCat,setSelCat]=useState(null);
   const filtered=jobs.filter(j=>j.country===country).filter(j=>!selCat||j.catId===selCat).filter(j=>!globalSearch||j.title.toLowerCase().includes(globalSearch.toLowerCase()));
   return(
@@ -1419,6 +1436,7 @@ function JobsPage({jobs,jobCats,user,country,setModal,globalSearch}){
       <div style={{display:"grid",gap:12}}>
         {filtered.map(job=>{
           const cat=jobCats.find(c=>c.id===job.catId);
+          const hasApplied = Boolean(user && (job.applied||[]).includes(user.id));
           return(
             <div key={job.id} style={{...card(),display:"flex",gap:14,alignItems:"flex-start"}}>
               <div style={{width:40,height:40,background:TL,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{cat?.icon||"💼"}</div>
@@ -1431,7 +1449,9 @@ function JobsPage({jobs,jobCats,user,country,setModal,globalSearch}){
                 <div style={{fontSize:13,color:"#475569",lineHeight:1.5,marginBottom:8}}>{job.desc}</div>
                 <Pill bg="#f0fdf4" color={GR}>💰 {job.salary}</Pill>
               </div>
-              <Btn small primary onClick={()=>user?null:setModal("login")}>Apply</Btn>
+              <Btn small primary={hasApplied?false:true} onClick={()=>onApply(job.id)} style={hasApplied?{borderColor:"#16a34a",color:"#16a34a"}:{}}>
+                {hasApplied?"Applied":"Apply"}
+              </Btn>
             </div>
           );
         })}
