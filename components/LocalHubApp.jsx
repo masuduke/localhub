@@ -43,6 +43,7 @@ const API = {
   createOrder: (payload) => apiFetch("/api/orders", { method: "POST", body: JSON.stringify(payload) }),
   createIntent: (payload) => apiFetch("/api/payments/create-intent", { method: "POST", body: JSON.stringify(payload) }),
   applyToJob: (jobId, payload) => apiFetch(`/api/jobs/${jobId}/apply`, { method: "POST", body: JSON.stringify(payload) }),
+  generateTryOn: (payload) => apiFetch("/api/tryon/generate", { method: "POST", body: JSON.stringify(payload) }),
 };
 
 function shellCard(extra = {}) {
@@ -929,6 +930,7 @@ export default function App(){
   const [promos,setPromos]     =useState(INIT_PROMOS);
   const [appliedPromo,setAppliedPromo]=useState(null);
   const [globalSearch,setGS]   =useState("");
+  const [tryOnItem,setTryOnItem]=useState(null);
   const country=user?.country||"uk";
   const mapApiJob=(j)=>({
     id:j.id,
@@ -1219,7 +1221,7 @@ export default function App(){
         {tab==="home"     &&<HomePage setTab={setTab} user={user} setModal={setModal} country={country} rates={rates} orders={orders} drivers={drivers} promos={promos} products={products} globalSearch={globalSearch} addToCart={addToCart}/>}
         {tab==="dashboard"&&user&&user.role==="customer"&&<CustomerDashboard user={user} country={country} orders={orders} setTab={setTab}/>}
         {tab==="dashboard"&&(!user||user.role!=="customer")&&<SignInPrompt msg="Sign in as a customer to view your dashboard and order history." setModal={setModal}/>}
-        {tab==="ecommerce"&&<EcommercePage products={products} country={country} addToCart={addToCart} rates={rates} cart={cart}/>}
+        {tab==="ecommerce"&&<EcommercePage products={products} country={country} addToCart={addToCart} rates={rates} cart={cart} onTryOn={(item)=>{setTryOnItem(item);setModal("tryon");}}/>}
         {tab==="grocery"  &&<GroceryPage   items={INIT_GROCERY.filter(i=>i.country===country)} country={country} addToCart={addToCart} cart={cart}/>}
         {tab==="food"     &&<FoodPage       restaurants={restaurants.filter(r=>r.country===country)} country={country} addToCart={addToCart}/>}
         {tab==="jobs"     &&<JobsPage       jobs={jobs} jobCats={jobCats} user={user} country={country} setModal={setModal} globalSearch={globalSearch} onApply={applyToJob}/>}
@@ -1237,6 +1239,7 @@ export default function App(){
       {modal==="login"  &&<LoginModal  accounts={ALL_ACCOUNTS} onLogin={login} onClose={()=>setModal(null)} onSwitch={()=>setModal("signup")}/>}
       {modal==="signup" &&<SignupModal jobCats={jobCats} onSignup={login} onClose={()=>setModal(null)} onSwitch={()=>setModal("login")}/>}
       {modal==="postjob"&&<PostJobModal jobCats={jobCats} country={country} onCreate={createJob} onClose={()=>setModal(null)}/>}
+      {modal==="tryon"  &&tryOnItem&&<TryOnModal item={tryOnItem} country={country} onClose={()=>{setModal(null);setTryOnItem(null);}}/>}
       {modal==="chat"   &&user&&<ChatPanel user={user} onClose={()=>setModal(null)}/>}
       {modal==="cart"   &&<CartModal cart={cart} setCart={setCart} products={products} country={country} drivers={drivers.filter(d=>d.country===country&&d.isOnline&&d.status==="active")} rates={rates} placeOrder={placeOrder} user={user} setModal={setModal} onClose={()=>setModal(null)} appliedPromo={appliedPromo} calcDiscount={calcDiscount}/>}
     </div>
@@ -1421,7 +1424,7 @@ function SmartDiscoveryPanel({country,products,promos,query,setTab,addToCart}){
 // ═══════════════════════════════════════════════════════════════════════════
 //  SHOP, GROCERY, FOOD, JOBS, DELIVERY (compact)
 // ═══════════════════════════════════════════════════════════════════════════
-function EcommercePage({products,country,addToCart,rates,cart}){
+function EcommercePage({products,country,addToCart,rates,cart,onTryOn}){
   const [cat,setCat]=useState("All");
   const local=products.filter(p=>p.country===country);
   const cats=["All",...new Set(local.map(p=>p.cat))];
@@ -1436,6 +1439,7 @@ function EcommercePage({products,country,addToCart,rates,cart}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(205px,1fr))",gap:14}}>
         {filtered.map(item=>{
           const inCart=cart.filter(c=>c.id===item.id).length;
+          const tryOnEligible=/clothing|traditional/i.test(String(item.cat||""));
           return(
             <div key={item.id} style={{...card(),overflow:"hidden"}}>
               <div style={{height:130,background:item.color||"#f1f5f9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:56,marginBottom:12,position:"relative"}}>
@@ -1447,7 +1451,10 @@ function EcommercePage({products,country,addToCart,rates,cart}){
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div><span style={{fontSize:15,fontWeight:800,color:NV}}>{fmt(item.price,country)}</span>
                   <div style={{fontSize:10,color:AM}}>+{Math.floor(item.price*POINTS_PER_UNIT[country])} pts</div></div>
-                <Btn small primary onClick={()=>addToCart(item,"ecommerce")}>+ Add</Btn>
+                <div style={{display:"flex",gap:6}}>
+                  {tryOnEligible&&<Btn small onClick={()=>onTryOn(item)}>AI Try-On</Btn>}
+                  <Btn small primary onClick={()=>addToCart(item,"ecommerce")}>+ Add</Btn>
+                </div>
               </div>
             </div>
           );
@@ -2249,6 +2256,119 @@ function PostJobModal({jobCats,country,onCreate,onClose}){
       <div style={{display:"flex",gap:10}}>
         <Btn onClick={onClose} style={{flex:1}}>Cancel</Btn>
         <Btn primary onClick={submit} disabled={saving} style={{flex:2}}>{saving?"Posting...":"Post Job"}</Btn>
+      </div>
+    </ModalWrap>
+  );
+}
+
+function TryOnModal({item,country,onClose}){
+  const [src,setSrc]=useState("");
+  const [result,setResult]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [mix,setMix]=useState(50);
+  const [err,setErr]=useState("");
+
+  const loadImage=(file)=>{
+    const reader=new FileReader();
+    reader.onload=()=>setSrc(String(reader.result||""));
+    reader.readAsDataURL(file);
+  };
+
+  const simulateTryOn=(imageDataUrl, product)=>{
+    return new Promise((resolve,reject)=>{
+      const img=new Image();
+      img.onload=()=>{
+        const canvas=document.createElement("canvas");
+        canvas.width=img.width;
+        canvas.height=img.height;
+        const ctx=canvas.getContext("2d");
+        if(!ctx){reject(new Error("Canvas not available"));return;}
+        ctx.drawImage(img,0,0);
+        const tone=product.color||"#ff8b5a";
+        const w=canvas.width, h=canvas.height;
+        ctx.globalAlpha=.28;
+        ctx.fillStyle=tone;
+        ctx.beginPath();
+        ctx.moveTo(w*.26,h*.34);
+        ctx.lineTo(w*.74,h*.34);
+        ctx.lineTo(w*.68,h*.73);
+        ctx.lineTo(w*.32,h*.73);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha=.95;
+        ctx.strokeStyle="#ffffff";
+        ctx.lineWidth=Math.max(2,Math.round(w*0.004));
+        ctx.stroke();
+        ctx.globalAlpha=.95;
+        ctx.fillStyle="rgba(33,26,23,.72)";
+        ctx.fillRect(w*.05,h*.86,w*.9,h*.1);
+        ctx.fillStyle="#fff";
+        ctx.font=`${Math.max(14,Math.round(w*0.035))}px Poppins`;
+        ctx.fillText(`Try-On Preview: ${product.name}`,w*.08,h*.925);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.onerror=()=>reject(new Error("Image load failed"));
+      img.src=imageDataUrl;
+    });
+  };
+
+  const generate=async()=>{
+    if(!src) return;
+    setLoading(true); setErr("");
+    try{
+      const data=await API.generateTryOn({imageDataUrl:src,product:{name:item.name,color:item.color||"#ff8b5a",category:item.cat},country});
+      if(data?.resultImageDataUrl){setResult(data.resultImageDataUrl);}
+      else{
+        const local=await simulateTryOn(src,item);
+        setResult(local);
+      }
+    }catch(e){
+      try{
+        const local=await simulateTryOn(src,item);
+        setResult(local);
+      }catch(_){
+        setErr(e.message||"Could not generate try-on preview");
+      }
+    }finally{setLoading(false);}
+  };
+
+  const beforeAfterStyle={
+    position:"relative",
+    width:"100%",
+    borderRadius:12,
+    overflow:"hidden",
+    border:"1px solid #ffd6bf",
+    background:"#fff7f2"
+  };
+
+  return(
+    <ModalWrap onClose={onClose} wide>
+      <h2 style={{fontFamily:"Syne,sans-serif",fontSize:20,fontWeight:800,color:NV,marginBottom:4}}>AI Try-On</h2>
+      <div style={{fontSize:12,color:SL,marginBottom:12}}>{item.name} · {item.cat}</div>
+      <div style={{display:"grid",gap:10}}>
+        <label style={{display:"block",border:"1px dashed #ffbf97",borderRadius:10,padding:12,background:"#fff8f3",fontSize:12,color:"#9a4a1d",fontWeight:600,cursor:"pointer"}}>
+          Upload your photo
+          <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)loadImage(f);}}/>
+        </label>
+        {src&&<img src={src} alt="before" style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:10,border:"1px solid #ffe1d0",background:"#fff"}}/>}
+        {src&&<Btn primary onClick={generate} disabled={loading}>{loading?"Generating Preview...":"Generate Try-On"}</Btn>}
+        {err&&<div style={{fontSize:12,color:RD,background:"#fee2e2",padding:"8px 10px",borderRadius:8}}>{err}</div>}
+        {src&&result&&(
+          <div>
+            <div style={{fontSize:12,fontWeight:700,color:SL,marginBottom:8}}>Before / After</div>
+            <div style={beforeAfterStyle}>
+              <img src={src} alt="before" style={{display:"block",width:"100%"}}/>
+              <div style={{position:"absolute",inset:0,width:`${mix}%`,overflow:"hidden"}}>
+                <img src={result} alt="after" style={{display:"block",width:"100%"}}/>
+              </div>
+              <div style={{position:"absolute",top:0,bottom:0,left:`calc(${mix}% - 1px)`,width:2,background:"#fff"}}/>
+            </div>
+            <input type="range" min={0} max={100} value={mix} onChange={e=>setMix(Number(e.target.value))} style={{width:"100%",marginTop:8}}/>
+          </div>
+        )}
+      </div>
+      <div style={{display:"flex",justifyContent:"flex-end",marginTop:14}}>
+        <Btn onClick={onClose}>Close</Btn>
       </div>
     </ModalWrap>
   );
