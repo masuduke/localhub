@@ -924,7 +924,6 @@ export default function App(){
   const [appliedPromo,setAppliedPromo]=useState(null);
   const [globalSearch,setGS]   =useState("");
   const country=user?.country||"uk";
-  const country=user?.country||"uk";
 
   // Read token from URL hash (landing page redirect) or silent refresh
   useEffect(()=>{
