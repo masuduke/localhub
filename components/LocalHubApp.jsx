@@ -1916,7 +1916,9 @@ function LoginModal({accounts,onLogin,onClose,onSwitch}){
       onLogin({...data.user,accessToken:data.accessToken,avatar:data.user.avatar||avatarMap[data.user.role]||"👤",points:data.user.loyaltyPoints||0,credits:data.user.loyaltyCredits||0,referralCode:data.user.referralCode||""});
     }catch(e){
       // Fallback to demo accounts if API fails
-      const u=accounts.find(a=>a.email===email&&a.password===pass);
+      const emailNorm=(email||"").trim().toLowerCase();
+      const passNorm=(pass||"").trim();
+      const u=accounts.find(a=>(a.email||"").trim().toLowerCase()===emailNorm&&a.password===passNorm);
       if(u){onLogin(u);}else{setErrMsg(e.message||"Invalid email or password");}
     }finally{setLoading(false);}
   };
