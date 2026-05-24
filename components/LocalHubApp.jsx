@@ -46,7 +46,7 @@ const API = {
 };
 
 function shellCard(extra = {}) {
-  return { background: "#ffffff", border: "1px solid #dbe4f0", borderRadius: 14, padding: 18, ...extra };
+  return { background: "#ffffff", border: "1px solid #ffd6bf", borderRadius: 12, padding: 16, boxShadow:"0 8px 22px rgba(255,90,0,.08)", ...extra };
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -59,8 +59,8 @@ function shellCard(extra = {}) {
 //  5. Vendor analytics dashboard — SVG charts, top products, trends
 // ══════════════════════════════════════════════════════════════════════════
 
-const T="#0d9488",TL="#ccfbf1",AM="#f59e0b",NV="#0f172a";
-const SL="#64748b",RD="#dc2626",GR="#16a34a",PU="#7c3aed",OR="#ea580c";
+const T="#ff5a00",TL="#fff0e8",AM="#ff8a00",NV="#211a17";
+const SL="#7a6a62",RD="#e11d48",GR="#16a34a",PU="#8b5cf6",OR="#f97316";
 const FLAG={uk:"🇬🇧",bd:"🇧🇩"},CUR={uk:"£",bd:"৳"};
 const fmt=(p,c)=>c==="uk"?`£${(+p).toFixed(2)}`:`৳${Math.round(+p*130)}`;
 
@@ -221,18 +221,18 @@ const VENDOR_WEEKLY={
 };
 
 // ─── SHARED UI ────────────────────────────────────────────────────────────
-const card=(e={})=>({background:"#fff",borderRadius:16,border:"1px solid #e2e8f0",padding:"20px",...e});
+const card=(e={})=>({background:"#fff",borderRadius:12,border:"1px solid #ffd9c7",padding:"16px",boxShadow:"0 10px 24px rgba(255,90,0,.08)",...e});
 const Pill=({children,bg=TL,color=T,style={}})=>(
   <span style={{background:bg,color,fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,...style}}>{children}</span>
 );
 const Btn=({children,onClick,primary,danger,warning,small,full,disabled,style={}})=>(
   <button onClick={onClick} disabled={disabled} style={{
-    background:danger?"#fee2e2":warning?"#fff7ed":primary?T:"#fff",
-    color:danger?RD:warning?OR:primary?"#fff":T,
-    border:`1.5px solid ${danger?RD:warning?OR:T}`,
+    background:danger?"#fee2e2":warning?"#fff2e0":primary?`linear-gradient(135deg, ${T} 0%, #ff7a00 100%)`:"#fff",
+    color:danger?RD:warning?OR:primary?"#fff":"#b34700",
+    border:`1.5px solid ${danger?RD:warning?OR:"#ffb68e"}`,
     borderRadius:9,padding:small?"6px 14px":full?"12px":"10px 22px",
     fontWeight:700,fontSize:small?12:14,cursor:disabled?"not-allowed":"pointer",
-    opacity:disabled?.5:1,width:full?"100%":"auto",transition:"all .15s",...style
+    opacity:disabled?.5:1,width:full?"100%":"auto",transition:"all .15s",boxShadow:primary?"0 8px 16px rgba(255,90,0,.28)":"none",...style
   }}>{children}</button>
 );
 const Inp=({label,...p})=>(
@@ -1147,8 +1147,8 @@ export default function App(){
   const unreadNotifs=notifs.filter(n=>!n.read).length;
 
   return(
-    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",minHeight:"100vh",background:"linear-gradient(180deg,#eef4fb 0%,#f7fafc 52%,#ecf2f9 100%)"}}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700;9..40,800&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
+    <div style={{fontFamily:"'Poppins',system-ui,sans-serif",minHeight:"100vh",background:"linear-gradient(180deg,#fff7f2 0%,#fffdfb 45%,#fff3eb 100%)"}}>
+      <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
       <style>{`*{box-sizing:border-box}button{transition:opacity .15s}button:hover:not(:disabled){opacity:.85}input,select,textarea{outline:none}
         @keyframes slideDown{from{transform:translateY(-10px);opacity:0}to{transform:none;opacity:1}}
         @keyframes fadeIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
@@ -1156,17 +1156,17 @@ export default function App(){
         ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
       `}</style>
 
-      {toast&&<div style={{position:"fixed",top:68,right:20,zIndex:9999,background:"#059669",color:"#fff",padding:"12px 20px",borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,.2)",fontSize:14,fontWeight:600,animation:"slideDown .3s ease",maxWidth:380}}>{toast.msg}</div>}
+      {toast&&<div style={{position:"fixed",top:72,right:20,zIndex:9999,background:"linear-gradient(135deg,#ff5a00 0%,#ff7a00 100%)",color:"#fff",padding:"12px 20px",borderRadius:12,boxShadow:"0 12px 28px rgba(255,90,0,.35)",fontSize:14,fontWeight:600,animation:"slideDown .3s ease",maxWidth:380}}>{toast.msg}</div>}
 
       {/* HEADER */}
-      <header style={{background:"#0a1630",position:"sticky",top:0,zIndex:200,boxShadow:"0 8px 30px rgba(3,10,28,.45)"}}>
+      <header style={{background:"linear-gradient(90deg,#ff5a00 0%,#ff7a00 52%,#ff8f00 100%)",position:"sticky",top:0,zIndex:200,boxShadow:"0 8px 24px rgba(255,90,0,.35)"}}>
         <div style={{maxWidth:1320,margin:"0 auto",padding:"0 16px",display:"flex",alignItems:"center",height:64,gap:10}}>
           <div style={{fontFamily:"Syne,sans-serif",fontSize:20,fontWeight:800,letterSpacing:"-1px",flexShrink:0}}>
-            <span style={{color:"#14b8a6"}}>LOCAL</span><span style={{color:AM}}>HUB</span>
+            <span style={{color:"#fff"}}>LOCAL</span><span style={{color:"#2b1608"}}>HUB</span>
           </div>
           <nav style={{display:"flex",gap:6,flex:1,justifyContent:"center",flexWrap:"wrap"}}>
             {TABS.map(t=>(
-              <button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"#123569":"transparent",border:`1px solid ${tab===t.id?"#1ca6ad":"#20365f"}`,color:tab===t.id?"#e6fffd":"#a8b6cf",padding:"6px 10px",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
+              <button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"#ffffff":"rgba(255,255,255,.2)",border:`1px solid ${tab===t.id?"#ffffff":"rgba(255,255,255,.28)"}`,color:tab===t.id?"#d94a00":"#fff7ed",padding:"6px 10px",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
                 <span style={{fontSize:13}}>{t.icon}</span><span>{t.label}</span>
               </button>
             ))}
@@ -1175,36 +1175,36 @@ export default function App(){
             {user&&<>
               {user.role==="customer"&&<LoyaltyBadge points={user.points||0} country={country} onClick={()=>setTab("loyalty")}/>}
               {cart.length>0&&(
-                <button onClick={()=>setModal("cart")} style={{background:"#1e293b",border:"none",color:"#fff",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:5,position:"relative"}}>
+                <button onClick={()=>setModal("cart")} style={{background:"#fff",border:"none",color:"#d94a00",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,position:"relative"}}>
                   🛒 {cart.length}
                   {discount>0&&<Pill bg={AM} color={NV} style={{fontSize:9,padding:"1px 5px"}}>-{CUR[country]}{discount}</Pill>}
                   {cartGroups.length>1&&<Pill bg={PU} color="#fff" style={{fontSize:9,padding:"1px 5px"}}>{cartGroups.length}v</Pill>}
                 </button>
               )}
-              <button onClick={()=>setModal("chat")} style={{background:"none",border:"1px solid #334155",color:"#94a3b8",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:14}}>💬</button>
+              <button onClick={()=>setModal("chat")} style={{background:"rgba(255,255,255,.2)",border:"1px solid rgba(255,255,255,.3)",color:"#fff",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:14}}>💬</button>
               <NotifBell notifs={notifs} onMarkRead={markNotifRead} onMarkAll={markAllRead} onClear={()=>setNotifs([])}/>
-              <div style={{background:"#1e293b",borderRadius:20,padding:"4px 10px",display:"flex",alignItems:"center",gap:5}}>
+              <div style={{background:"rgba(255,255,255,.2)",borderRadius:20,padding:"4px 10px",display:"flex",alignItems:"center",gap:5,border:"1px solid rgba(255,255,255,.3)"}}>
                 <span style={{fontSize:14}}>{user.avatar}</span>
-                <span style={{fontSize:11,color:"#e2e8f0",fontWeight:600}}>{user.name.split(" ")[0]}</span>
+                <span style={{fontSize:11,color:"#fff",fontWeight:700}}>{user.name.split(" ")[0]}</span>
                 <span>{FLAG[user.country]}</span>
               </div>
-              <button onClick={logout} style={{background:"none",border:"1px solid #334155",color:"#94a3b8",borderRadius:8,padding:"4px 9px",cursor:"pointer",fontSize:11}}>Out</button>
+              <button onClick={logout} style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.35)",color:"#fff",borderRadius:8,padding:"4px 9px",cursor:"pointer",fontSize:11}}>Out</button>
             </>}
             {!user&&<>
-              <button onClick={()=>setModal("login")} style={{background:"transparent",border:"1px solid #475569",color:"#94a3b8",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>Log In</button>
-              <button onClick={()=>setModal("signup")} style={{background:AM,border:"none",color:NV,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>Sign Up</button>
+              <button onClick={()=>setModal("login")} style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.4)",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>Log In</button>
+              <button onClick={()=>setModal("signup")} style={{background:"#fff",border:"none",color:"#d94a00",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:800}}>Sign Up</button>
             </>}
           </div>
         </div>
         {/* Search */}
-        <div style={{borderTop:"1px solid #172b4d",padding:"8px 16px",display:"flex",gap:10,alignItems:"center"}}>
+        <div style={{borderTop:"1px solid rgba(255,255,255,.26)",padding:"8px 16px",display:"flex",gap:10,alignItems:"center",background:"rgba(0,0,0,.08)"}}>
           <div style={{position:"relative",flex:1,maxWidth:440}}>
             <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:SL}}>🔍</span>
               <input value={globalSearch} onChange={e=>setGS(e.target.value)} placeholder="Search products, restaurants, jobs..."
-                style={{width:"100%",padding:"9px 12px 9px 32px",border:"1.5px solid #223b66",borderRadius:11,fontSize:12,fontFamily:"inherit",background:"#0d1c37",color:"#d6e6ff"}}/>
+                style={{width:"100%",padding:"9px 12px 9px 32px",border:"1.5px solid #ffccad",borderRadius:11,fontSize:12,fontFamily:"inherit",background:"#fff8f3",color:"#7f3200"}}/>
             {globalSearch&&<button onClick={()=>setGS("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",cursor:"pointer",fontSize:14,color:"#475569"}}>✕</button>}
           </div>
-          <div style={{fontSize:11,color:"#475569",flexShrink:0}}>
+          <div style={{fontSize:11,color:"#fff8f1",flexShrink:0,fontWeight:600}}>
             {FLAG[country]} {country==="uk"?"UK":"Bangladesh"}
             {appliedPromo&&<span style={{marginLeft:8,color:AM,fontWeight:600}}>🎉 Deal active: {appliedPromo.type==="percent"?`${appliedPromo.discount}% OFF`:`${CUR[country]}${appliedPromo.discount} OFF`}</span>}
           </div>
