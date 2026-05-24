@@ -1216,7 +1216,7 @@ export default function App(){
         {/* Promo banners on all content tabs */}
         {["home","ecommerce","grocery","food"].includes(tab)&&<PromoBanners promos={promos} country={country} user={user} onApply={setAppliedPromo} appliedPromo={appliedPromo}/>}
 
-        {tab==="home"     &&<HomePage setTab={setTab} user={user} setModal={setModal} country={country} rates={rates} orders={orders} drivers={drivers} promos={promos}/>}
+        {tab==="home"     &&<HomePage setTab={setTab} user={user} setModal={setModal} country={country} rates={rates} orders={orders} drivers={drivers} promos={promos} products={products} globalSearch={globalSearch} addToCart={addToCart}/>}
         {tab==="dashboard"&&user&&user.role==="customer"&&<CustomerDashboard user={user} country={country} orders={orders} setTab={setTab}/>}
         {tab==="dashboard"&&(!user||user.role!=="customer")&&<SignInPrompt msg="Sign in as a customer to view your dashboard and order history." setModal={setModal}/>}
         {tab==="ecommerce"&&<EcommercePage products={products} country={country} addToCart={addToCart} rates={rates} cart={cart}/>}
@@ -1309,7 +1309,7 @@ function CustomerDashboard({user,country,orders,setTab}){
 // ═══════════════════════════════════════════════════════════════════════════
 //  HOME PAGE
 // ═══════════════════════════════════════════════════════════════════════════
-function HomePage({setTab,user,setModal,country,rates,orders,drivers,promos}){
+function HomePage({setTab,user,setModal,country,rates,orders,drivers,promos,products,globalSearch,addToCart}){
   const features=[
     {id:"ecommerce",icon:"🛍️",label:"E-Commerce",  desc:"Shop local with AI try-on",         color:"#7c3aed"},
     {id:"grocery",  icon:"🛒",label:"Grocery",     desc:"Fresh from local shops",             color:GR},
@@ -1353,7 +1353,67 @@ function HomePage({setTab,user,setModal,country,rates,orders,drivers,promos}){
           </div>
         ))}
       </div>
-      <LiveMap drivers={drivers} country={country}/>
+      <SmartDiscoveryPanel country={country} products={products} promos={promos} query={globalSearch} setTab={setTab} addToCart={addToCart}/>
+    </div>
+  );
+}
+
+function SmartDiscoveryPanel({country,products,promos,query,setTab,addToCart}){
+  const normalizedQuery=(query||"").trim().toLowerCase();
+  const localProducts=(products||[]).filter(p=>p.country===country);
+  const activePromos=(promos||[]).filter(p=>p.country===country&&p.status==="active");
+  const matchProduct=(p)=>{
+    if(!normalizedQuery) return true;
+    const hay=[p.name,p.cat,p.description,p.emoji].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(normalizedQuery);
+  };
+  const matched=localProducts.filter(matchProduct).slice(0,8);
+  const discounted=localProducts
+    .filter(p=>activePromos.some(pr=>!pr.category||pr.category.toLowerCase()===String(p.cat||"").toLowerCase()))
+    .slice(0,8);
+  const displayList=(normalizedQuery?matched:discounted).slice(0,6);
+  return(
+    <div style={{...card({marginTop:2})}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:16,color:NV}}>Smart Picks {normalizedQuery?`for "${query}"`:"Near You"}</div>
+          <div style={{fontSize:12,color:SL}}>
+            {normalizedQuery
+              ? `${matched.length} matching products found`
+              : `${activePromos.length} active deals shaping recommendations`}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn small onClick={()=>setTab("ecommerce")}>Open Shop</Btn>
+          <Btn small primary onClick={()=>setTab("grocery")}>View Grocery</Btn>
+        </div>
+      </div>
+      {displayList.length===0&&(
+        <div style={{border:"1px dashed #f0c5ab",borderRadius:10,padding:16,fontSize:13,color:SL}}>
+          No product match for this search yet. Try keywords like <strong>t-shirt</strong>, <strong>shirt</strong>, <strong>rice</strong>, or <strong>earbuds</strong>.
+        </div>
+      )}
+      {displayList.length>0&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10}}>
+          {displayList.map(item=>{
+            const promo=activePromos.find(pr=>!pr.category||pr.category.toLowerCase()===String(item.cat||"").toLowerCase());
+            const discountValue=promo?(promo.type==="percent"?`${promo.discount}% OFF`:`${CUR[country]}${promo.discount} OFF`):null;
+            return(
+              <div key={item.id} style={{border:"1px solid #ffd7c2",borderRadius:10,padding:10,background:"#fff9f6"}}>
+                <div style={{height:84,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,background:item.color||"#fff0e7",marginBottom:8,position:"relative"}}>
+                  {item.emoji||"📦"}
+                  {discountValue&&<span style={{position:"absolute",top:6,right:6,fontSize:9,fontWeight:800,color:"#b34700",background:"#ffe2ce",border:"1px solid #ffbf97",borderRadius:999,padding:"2px 6px"}}>{discountValue}</span>}
+                </div>
+                <div style={{fontWeight:700,fontSize:12,color:NV,minHeight:32}}>{item.name}</div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:8}}>
+                  <div style={{fontSize:13,fontWeight:800,color:"#d94a00"}}>{fmt(item.price,country)}</div>
+                  <Btn small primary onClick={()=>addToCart(item,"ecommerce")}>+ Add</Btn>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
