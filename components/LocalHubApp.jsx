@@ -43,6 +43,10 @@ const API = {
   createIntent: (payload) => apiFetch("/api/payments/create-intent", { method: "POST", body: JSON.stringify(payload) }),
 };
 
+function shellCard(extra = {}) {
+  return { background: "#ffffff", border: "1px solid #dbe4f0", borderRadius: 14, padding: 18, ...extra };
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 //  LOCALHUB v6 — Complete Platform
 //  NEW in v6:
@@ -925,6 +929,16 @@ export default function App(){
   const [globalSearch,setGS]   =useState("");
   const country=user?.country||"uk";
 
+  useEffect(()=>{
+    if(typeof window==="undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const checkout = params.get("checkout");
+    if(!checkout) return;
+    if(checkout==="success") fire("Payment completed in Stripe. Your order is being processed.");
+    if(checkout==="cancelled") fire("Stripe checkout was cancelled.");
+    window.history.replaceState(null,"",window.location.pathname);
+  },[]);
+
   // Read token from URL hash (landing page redirect) or silent refresh
   useEffect(()=>{
     (async()=>{
@@ -1067,6 +1081,7 @@ export default function App(){
 
   const TABS=[
     {id:"home",    icon:"🏠",label:"Home"},
+    ...((user?.role==="customer"||!user)?[{id:"dashboard",icon:"📊",label:"Dashboard"}]:[]),
     {id:"ecommerce",icon:"🛍️",label:"Shop"},
     {id:"grocery", icon:"🛒",label:"Grocery"},
     {id:"food",    icon:"🍔",label:"Food"},
@@ -1085,7 +1100,7 @@ export default function App(){
   const unreadNotifs=notifs.filter(n=>!n.read).length;
 
   return(
-    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",minHeight:"100vh",background:"#f1f5f9"}}>
+    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",minHeight:"100vh",background:"linear-gradient(180deg,#eef4fb 0%,#f7fafc 52%,#ecf2f9 100%)"}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700;9..40,800&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
       <style>{`*{box-sizing:border-box}button{transition:opacity .15s}button:hover:not(:disabled){opacity:.85}input,select,textarea{outline:none}
         @keyframes slideDown{from{transform:translateY(-10px);opacity:0}to{transform:none;opacity:1}}
@@ -1097,14 +1112,14 @@ export default function App(){
       {toast&&<div style={{position:"fixed",top:68,right:20,zIndex:9999,background:"#059669",color:"#fff",padding:"12px 20px",borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,.2)",fontSize:14,fontWeight:600,animation:"slideDown .3s ease",maxWidth:380}}>{toast.msg}</div>}
 
       {/* HEADER */}
-      <header style={{background:NV,position:"sticky",top:0,zIndex:200,boxShadow:"0 2px 20px rgba(0,0,0,.35)"}}>
-        <div style={{maxWidth:1280,margin:"0 auto",padding:"0 14px",display:"flex",alignItems:"center",height:58,gap:8}}>
+      <header style={{background:"#0a1630",position:"sticky",top:0,zIndex:200,boxShadow:"0 8px 30px rgba(3,10,28,.45)"}}>
+        <div style={{maxWidth:1320,margin:"0 auto",padding:"0 16px",display:"flex",alignItems:"center",height:64,gap:10}}>
           <div style={{fontFamily:"Syne,sans-serif",fontSize:20,fontWeight:800,letterSpacing:"-1px",flexShrink:0}}>
             <span style={{color:"#14b8a6"}}>LOCAL</span><span style={{color:AM}}>HUB</span>
           </div>
-          <nav style={{display:"flex",gap:1,flex:1,justifyContent:"center",flexWrap:"wrap"}}>
+          <nav style={{display:"flex",gap:6,flex:1,justifyContent:"center",flexWrap:"wrap"}}>
             {TABS.map(t=>(
-              <button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?T:"transparent",border:"none",color:tab===t.id?"#fff":"#94a3b8",padding:"5px 9px",borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:3}}>
+              <button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"#123569":"transparent",border:`1px solid ${tab===t.id?"#1ca6ad":"#20365f"}`,color:tab===t.id?"#e6fffd":"#a8b6cf",padding:"6px 10px",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
                 <span style={{fontSize:13}}>{t.icon}</span><span>{t.label}</span>
               </button>
             ))}
@@ -1135,11 +1150,11 @@ export default function App(){
           </div>
         </div>
         {/* Search */}
-        <div style={{borderTop:"1px solid #1e293b",padding:"6px 14px",display:"flex",gap:10,alignItems:"center"}}>
+        <div style={{borderTop:"1px solid #172b4d",padding:"8px 16px",display:"flex",gap:10,alignItems:"center"}}>
           <div style={{position:"relative",flex:1,maxWidth:440}}>
             <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:SL}}>🔍</span>
-            <input value={globalSearch} onChange={e=>setGS(e.target.value)} placeholder="Search products, restaurants, jobs..."
-              style={{width:"100%",padding:"7px 12px 7px 32px",border:"1.5px solid #1e293b",borderRadius:10,fontSize:12,fontFamily:"inherit",background:"#0f172a",color:"#e2e8f0"}}/>
+              <input value={globalSearch} onChange={e=>setGS(e.target.value)} placeholder="Search products, restaurants, jobs..."
+                style={{width:"100%",padding:"9px 12px 9px 32px",border:"1.5px solid #223b66",borderRadius:11,fontSize:12,fontFamily:"inherit",background:"#0d1c37",color:"#d6e6ff"}}/>
             {globalSearch&&<button onClick={()=>setGS("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",cursor:"pointer",fontSize:14,color:"#475569"}}>✕</button>}
           </div>
           <div style={{fontSize:11,color:"#475569",flexShrink:0}}>
@@ -1150,11 +1165,13 @@ export default function App(){
       </header>
 
       {/* PAGES */}
-      <div style={{maxWidth:1280,margin:"0 auto",padding:"18px 16px 80px"}}>
+      <div style={{maxWidth:1320,margin:"0 auto",padding:"22px 16px 90px"}}>
         {/* Promo banners on all content tabs */}
         {["home","ecommerce","grocery","food"].includes(tab)&&<PromoBanners promos={promos} country={country} user={user} onApply={setAppliedPromo} appliedPromo={appliedPromo}/>}
 
         {tab==="home"     &&<HomePage setTab={setTab} user={user} setModal={setModal} country={country} rates={rates} orders={orders} drivers={drivers} promos={promos}/>}
+        {tab==="dashboard"&&user&&user.role==="customer"&&<CustomerDashboard user={user} country={country} orders={orders} setTab={setTab}/>}
+        {tab==="dashboard"&&(!user||user.role!=="customer")&&<SignInPrompt msg="Sign in as a customer to view your dashboard and order history." setModal={setModal}/>}
         {tab==="ecommerce"&&<EcommercePage products={products} country={country} addToCart={addToCart} rates={rates} cart={cart}/>}
         {tab==="grocery"  &&<GroceryPage   items={INIT_GROCERY.filter(i=>i.country===country)} country={country} addToCart={addToCart} cart={cart}/>}
         {tab==="food"     &&<FoodPage       restaurants={restaurants.filter(r=>r.country===country)} country={country} addToCart={addToCart}/>}
@@ -1186,6 +1203,57 @@ function SignInPrompt({msg,setModal}){
       <div style={{fontWeight:700,fontSize:18,color:NV,marginBottom:8}}>Sign In Required</div>
       <div style={{color:SL,fontSize:14,marginBottom:20}}>{msg}</div>
       <Btn primary onClick={()=>setModal("login")}>Log In</Btn>
+    </div>
+  );
+}
+
+function CustomerDashboard({user,country,orders,setTab}){
+  const recentOrders = [...orders].reverse().slice(0,8);
+  const delivered = recentOrders.filter(o=>o.status==="delivered"||o.status==="confirmed").length;
+  const totalSpent = recentOrders.reduce((s,o)=>s+(+o.total||0),0);
+  const points = user?.points||0;
+  return(
+    <div>
+      <div style={{...shellCard({background:"linear-gradient(135deg,#0f2d57 0%,#164a7a 55%,#0f3b66 100%)",color:"#e6f1ff",marginBottom:16,borderColor:"#1e4e86"})}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontSize:12,opacity:.8,marginBottom:4}}>Customer Dashboard</div>
+            <h2 style={{fontFamily:"Syne,sans-serif",fontSize:28,fontWeight:800,lineHeight:1.1}}>Welcome back, {user?.name?.split(" ")[0]||"Customer"}</h2>
+            <div style={{marginTop:8,fontSize:13,opacity:.9}}>Track orders, manage rewards, and continue shopping locally.</div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn onClick={()=>setTab("ecommerce")} style={{background:"#ffffff",borderColor:"#ffffff",color:"#123869"}}>Continue Shopping</Btn>
+            <Btn onClick={()=>setTab("loyalty")} style={{background:"transparent",borderColor:"#8ec5ff",color:"#dbeafe"}}>View Rewards</Btn>
+          </div>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:16}}>
+        <div style={shellCard()}><div style={{fontSize:12,color:SL}}>Recent Orders</div><div style={{fontSize:30,fontWeight:800,color:NV}}>{recentOrders.length}</div></div>
+        <div style={shellCard()}><div style={{fontSize:12,color:SL}}>Delivered</div><div style={{fontSize:30,fontWeight:800,color:"#166534"}}>{delivered}</div></div>
+        <div style={shellCard()}><div style={{fontSize:12,color:SL}}>Total Spent</div><div style={{fontSize:30,fontWeight:800,color:NV}}>{CUR[country]}{totalSpent.toFixed(2)}</div></div>
+        <div style={shellCard()}><div style={{fontSize:12,color:SL}}>Loyalty Points</div><div style={{fontSize:30,fontWeight:800,color:"#a16207"}}>{points.toLocaleString()}</div></div>
+      </div>
+
+      <div style={shellCard()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontFamily:"Syne,sans-serif",fontSize:18,fontWeight:800,color:NV}}>Order History</div>
+          <div style={{fontSize:12,color:SL}}>Latest {recentOrders.length} orders</div>
+        </div>
+        {recentOrders.length===0&&<div style={{fontSize:13,color:SL,padding:"8px 0"}}>No orders yet. Place your first order from Shop, Grocery, Food, or Delivery.</div>}
+        {recentOrders.length>0&&(
+          <div style={{display:"grid",gap:8}}>
+            {recentOrders.map((o,idx)=>(
+              <div key={o.id||idx} style={{display:"grid",gridTemplateColumns:"1.2fr .8fr .8fr .8fr",gap:10,alignItems:"center",padding:"10px 12px",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fbff"}}>
+                <div style={{fontSize:12,color:NV,fontWeight:700}}>{o.id||"Pending ID"}</div>
+                <div style={{fontSize:12,color:SL}}>{o.time||o.placed||"Just now"}</div>
+                <div style={{fontSize:12,color:NV,fontWeight:700}}>{CUR[o.country||country]}{(+o.total||0).toFixed(2)}</div>
+                <div style={{justifySelf:"start"}}><SBadge s={o.status||"pending"}/></div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1455,10 +1523,19 @@ function CartModal({cart,setCart,products,country,drivers,rates,placeOrder,user,
     setErr("");setLoading(true);
     try{const[la1,lo1]=getCoords("East London",country),[la2,lo2]=getCoords(`${addr.line1} ${addr.city}`,country);const d=await getRoadDist(la1,lo1,la2,lo2,unit);if(d>10){setErr(`Too far: ${d} ${unit}.`);return;}const q=drivers.filter(dr=>dr.pricing.maxDist>=d).map(dr=>({...dr,quote:+(calcDriverQuote(dr,d)).toFixed(2),eta:calcETA(d,country),distance:d})).sort((a,b)=>a.quote-b.quote).slice(0,5);setDist(d);setQuotes(q);setStep(3);}finally{setLoading(false);}
   };
-  const confirmOrder=()=>{
+  const confirmOrder=async()=>{
     const dr=quotes.find(q=>q.id===selDriver);
     const total=+(discountedSubtotal+(dr?.quote||0)).toFixed(2);
-    const id=placeOrder({items:cart,subtotal:discountedSubtotal,commission,delivery:dr.quote,total,driver:dr.name,address:addr,payment,country,vendorId:cart[0]?.vendorId||"a2",appliedPromo:appliedPromo?.id});
+    const id=await placeOrder({items:cart,subtotal:discountedSubtotal,commission,delivery:dr.quote,total,driver:dr.name,address:addr,payment,country,vendorId:cart[0]?.vendorId||"a2",appliedPromo:appliedPromo?.id});
+    if(payment==="card"&&_accessToken){
+      try{
+        const data=await API.createIntent({orderId:id,amount:total,currency:country==="uk"?"gbp":"bdt",checkout:true});
+        if(data?.checkoutUrl){
+          window.location.assign(data.checkoutUrl);
+          return;
+        }
+      }catch(_){}
+    }
     setOId(id);setStep(5);
   };
   const STEPS=["Review","Address","Driver","Payment","Done"];
@@ -1547,6 +1624,11 @@ function CartModal({cart,setCart,products,country,drivers,rates,placeOrder,user,
                 </div>
               ))}
             </div>
+            {payment==="card"&&!_accessToken&&(
+              <div style={{background:"#fff7ed",border:"1px solid #fdba74",borderRadius:10,padding:"9px 12px",fontSize:12,color:"#9a3412",marginBottom:12}}>
+                Card checkout requires an authenticated account session. Use API-backed login credentials, or choose a non-card payment method for demo mode.
+              </div>
+            )}
             <div style={{display:"flex",gap:10}}>
               <Btn onClick={()=>setStep(3)} style={{flex:1}}>← Back</Btn>
               <Btn primary onClick={confirmOrder} style={{flex:2}}>Place Order — {cur}{total} ✓</Btn>
