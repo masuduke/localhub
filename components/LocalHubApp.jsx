@@ -37,6 +37,7 @@ const API = {
   refresh: () => silentRefresh(),
   products: (params = {}) => { const q = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([,v])=>v))); return apiFetch(`/api/products?${q}`); },
   jobs: (params = {}) => { const q = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([,v])=>v))); return apiFetch(`/api/jobs?${q}`); },
+  createJob: (payload) => apiFetch("/api/jobs", { method: "POST", body: JSON.stringify(payload) }),
   notifications: () => apiFetch("/api/notifications"),
   markAllRead: () => apiFetch("/api/notifications", { method: "PATCH" }),
   createOrder: (payload) => apiFetch("/api/orders", { method: "POST", body: JSON.stringify(payload) }),
@@ -929,6 +930,19 @@ export default function App(){
   const [appliedPromo,setAppliedPromo]=useState(null);
   const [globalSearch,setGS]   =useState("");
   const country=user?.country||"uk";
+  const mapApiJob=(j)=>({
+    id:j.id,
+    country:j.country,
+    catId:j.categoryId,
+    title:j.title,
+    company:j.company,
+    location:j.location,
+    salary:j.salary,
+    minExp:j.minExp||0,
+    urgent:Boolean(j.isUrgent),
+    desc:j.description||"",
+    applied:[],
+  });
 
   useEffect(()=>{
     if(typeof window==="undefined") return;
@@ -965,6 +979,14 @@ export default function App(){
         return [...data.products,...seedOnly];
       });
     }).catch(()=>{});
+  },[country]);
+
+  // Load jobs from backend (fully backend-driven)
+  useEffect(()=>{
+    API.jobs({country}).then(data=>{
+      if(Array.isArray(data?.jobs)) setJobs(data.jobs.map(mapApiJob));
+      else setJobs([]);
+    }).catch(()=>setJobs([]));
   },[country]);
 
   // Load notifications (real if logged in with token, mock for demo)
@@ -1025,7 +1047,6 @@ export default function App(){
 
   const placeOrder=async(order)=>{
     const country=order.country||user?.country||"uk";
-    const pts=getOrderPoints(order.total,country);
     let id="ORD-"+Math.random().toString(36).slice(2,8).toUpperCase();
     // Try real API if logged in with token
     if(_accessToken&&user){
@@ -1045,12 +1066,9 @@ export default function App(){
           country,
         });
         if(data?.order?.id) id=data.order.id;
-        if(data?.pointsEarned) setUser(u=>({...u,points:(u.loyaltyPoints||u.points||0)+data.pointsEarned}));
       }catch(e){console.error("Order API error:",e);}
-    } else if(user){
-      setUser(u=>({...u,points:(u.points||0)+pts}));
     }
-    fire(`✅ Order ${id} placed! +${pts} loyalty points earned! ⭐`);
+    fire(`✅ Order ${id} placed!`);
     const newO={...order,id,status:"confirmed",time:new Date().toLocaleTimeString()};
     setOrders(o=>[...o,newO]);
     if(order.vendorId){
@@ -1085,6 +1103,18 @@ export default function App(){
     }
     setJobs(list=>list.map(j=>String(j.id)===String(jobId)?{...j,applied:[...(j.applied||[]),user.id]}:j));
     fire(`Application sent for ${target.title}`);
+  };
+  const createJob=async(payload)=>{
+    if(!user){setModal("login");return;}
+    try{
+      const data=await API.createJob(payload);
+      const created=mapApiJob(data.job);
+      setJobs(prev=>[created,...prev]);
+      setModal(null);
+      fire("Job posted successfully.");
+    }catch(e){
+      fire(e.message||"Could not post job right now.");
+    }
   };
   const markNotifRead=(id)=>setNotifs(n=>n.map(x=>x.id===id?{...x,read:true}:x));
   const markAllRead=()=>{setNotifs(n=>n.map(x=>({...x,read:true})));if(_accessToken)API.markAllRead().catch(()=>{});};
@@ -1206,6 +1236,7 @@ export default function App(){
       {/* MODALS */}
       {modal==="login"  &&<LoginModal  accounts={ALL_ACCOUNTS} onLogin={login} onClose={()=>setModal(null)} onSwitch={()=>setModal("signup")}/>}
       {modal==="signup" &&<SignupModal jobCats={jobCats} onSignup={login} onClose={()=>setModal(null)} onSwitch={()=>setModal("login")}/>}
+      {modal==="postjob"&&<PostJobModal jobCats={jobCats} country={country} onCreate={createJob} onClose={()=>setModal(null)}/>}
       {modal==="chat"   &&user&&<ChatPanel user={user} onClose={()=>setModal(null)}/>}
       {modal==="cart"   &&<CartModal cart={cart} setCart={setCart} products={products} country={country} drivers={drivers.filter(d=>d.country===country&&d.isOnline&&d.status==="active")} rates={rates} placeOrder={placeOrder} user={user} setModal={setModal} onClose={()=>setModal(null)} appliedPromo={appliedPromo} calcDiscount={calcDiscount}/>}
     </div>
@@ -1591,7 +1622,7 @@ function CartModal({cart,setCart,products,country,drivers,rates,placeOrder,user,
             {discount>0&&<><div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:SL,marginBottom:3}}><span>Subtotal</span><span>{cur}{subtotal.toFixed(2)}</span></div>
             <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:GR,marginBottom:3}}><span>🎉 Deal discount</span><span>-{cur}{discount}</span></div></>}
             <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:SL,marginBottom:3}}><span>After discount</span><span>{cur}{discountedSubtotal.toFixed(2)}</span></div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:SL}}><span>Points you'll earn</span><span style={{color:AM}}>+{getOrderPoints(discountedSubtotal,country)} pts ⭐</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:SL}}><span>Reward points</span><span style={{color:AM}}>Granted after payment success</span></div>
           </div>
           <Btn primary full onClick={()=>setStep(2)}>Continue →</Btn>
         </>)}
@@ -1635,7 +1666,7 @@ function CartModal({cart,setCart,products,country,drivers,rates,placeOrder,user,
               <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:SL,marginBottom:3}}><span>Items</span><span>{cur}{discountedSubtotal.toFixed(2)}</span></div>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:SL,marginBottom:3}}><span>Delivery</span><span>{cur}{dr?.quote}</span></div>
               <div style={{display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:16,color:NV,borderTop:"1px solid #e2e8f0",paddingTop:7,marginTop:5}}><span>Total</span><span>{cur}{total}</span></div>
-              <div style={{fontSize:11,color:AM,marginTop:5}}>⭐ You'll earn {getOrderPoints(discountedSubtotal,country)} loyalty points</div>
+              <div style={{fontSize:11,color:AM,marginTop:5}}>⭐ Loyalty points are credited after successful payment confirmation.</div>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
               {(country==="uk"?[["card","💳","Card"],["cash","💵","Cash"]]:[["bkash","📱","bKash"],["nagad","💜","Nagad"],["card","💳","Card"],["cash","💵","Cash"]]).map(([v,ic,lbl])=>(
@@ -1662,7 +1693,7 @@ function CartModal({cart,setCart,products,country,drivers,rates,placeOrder,user,
             <div style={{fontFamily:"Syne,sans-serif",fontSize:20,fontWeight:800,color:"#15803d",marginBottom:5}}>Order Confirmed!</div>
             <div style={{color:SL,fontSize:13,marginBottom:4}}>Order: <strong>{orderId}</strong></div>
             <div style={{background:"#fef9c3",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#92400e"}}>
-              ⭐ +{getOrderPoints(discountedSubtotal,country)} loyalty points earned and added to your account!
+              ⭐ Reward points are added after payment success confirmation.
             </div>
             <Btn primary onClick={onClose}>Done ✓</Btn>
           </div>
@@ -2114,6 +2145,51 @@ function SignupModal({jobCats,onSignup,onClose,onSwitch}){
         <Btn primary onClick={submit} disabled={submitting} style={{flex:2}}>{submitting?"Creating...":"Create Account 🎉"}</Btn>
         </div>
       </>)}
+    </ModalWrap>
+  );
+}
+
+function PostJobModal({jobCats,country,onCreate,onClose}){
+  const [f,setF]=useState({title:"",company:"",location:"",salary:"",categoryId:jobCats[0]?.id||1,minExp:0,description:"",isUrgent:false,weeks:1});
+  const [saving,setSaving]=useState(false);
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const submit=async()=>{
+    if(!f.title||!f.company||!f.location||!f.salary||!f.description) return;
+    setSaving(true);
+    await onCreate({
+      title:f.title,
+      company:f.company,
+      location:f.location,
+      salary:f.salary,
+      categoryId:Number(f.categoryId),
+      minExp:Number(f.minExp||0),
+      description:f.description,
+      isUrgent:Boolean(f.isUrgent),
+      weeks:Number(f.weeks||1),
+      country,
+    });
+    setSaving(false);
+  };
+  return(
+    <ModalWrap onClose={onClose} wide>
+      <h2 style={{fontFamily:"Syne,sans-serif",fontSize:19,fontWeight:800,color:NV,marginBottom:6}}>Post a Job</h2>
+      <div style={{fontSize:12,color:SL,marginBottom:14}}>Available for all account roles.</div>
+      <Inp label="Job Title" value={f.title} onChange={e=>set("title",e.target.value)}/>
+      <Inp label="Company" value={f.company} onChange={e=>set("company",e.target.value)}/>
+      <Inp label="Location" value={f.location} onChange={e=>set("location",e.target.value)}/>
+      <Inp label="Salary" value={f.salary} onChange={e=>set("salary",e.target.value)} placeholder={country==="uk"?"£12-15/hr":"৳25,000/mo"}/>
+      <Sel label="Category" value={f.categoryId} onChange={e=>set("categoryId",e.target.value)} options={jobCats.map(c=>({v:c.id,l:`${c.icon} ${c.name}`}))}/>
+      <Inp label="Minimum Experience (years)" type="number" min={0} value={f.minExp} onChange={e=>set("minExp",e.target.value)}/>
+      <Inp label="Description" value={f.description} onChange={e=>set("description",e.target.value)}/>
+      <Sel label="Listing Duration" value={f.weeks} onChange={e=>set("weeks",e.target.value)} options={[{v:1,l:"1 week"},{v:2,l:"2 weeks"},{v:4,l:"4 weeks"}]}/>
+      <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:NV,fontWeight:600,marginBottom:16}}>
+        <input type="checkbox" checked={f.isUrgent} onChange={e=>set("isUrgent",e.target.checked)}/>
+        Mark as urgent
+      </label>
+      <div style={{display:"flex",gap:10}}>
+        <Btn onClick={onClose} style={{flex:1}}>Cancel</Btn>
+        <Btn primary onClick={submit} disabled={saving} style={{flex:2}}>{saving?"Posting...":"Post Job"}</Btn>
+      </div>
     </ModalWrap>
   );
 }

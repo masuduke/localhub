@@ -83,11 +83,6 @@ export default async function handler(req, res) {
           include: { items: true },
         });
 
-        if (pointsEarned > 0) {
-          await tx.user.update({ where: { id: payload.sub }, data: { loyaltyPoints: { increment: pointsEarned } } });
-          await tx.pointsTransaction.create({ data: { userId: payload.sub, type: "earn", points: pointsEarned, description: `Order ${orderId}`, orderId } });
-        }
-
         await tx.orderStatusHistory.create({ data: { orderId, status: "pending" } });
 
         if (vendorId) {
