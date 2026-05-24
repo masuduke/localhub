@@ -930,6 +930,7 @@ export default function App(){
   const [promos,setPromos]     =useState(INIT_PROMOS);
   const [appliedPromo,setAppliedPromo]=useState(null);
   const [globalSearch,setGS]   =useState("");
+  const country=user?.country||"uk";
 
   // Silent refresh on mount
   useEffect(()=>{
@@ -1058,7 +1059,6 @@ export default function App(){
   const approvePromo=(id)=>{setPromos(ps=>ps.map(p=>p.id===id?{...p,status:"active"}:p));fire("✅ Promo approved and live!");};
   const rejectPromo=(id)=>{setPromos(ps=>ps.map(p=>p.id===id?{...p,status:"rejected"}:p));fire("Promo rejected.");};
 
-  const country=user?.country||"uk";
   const isAdmin=user?.role==="admin";
   const isVendor=user?.role==="vendor";
   const isDriver=user?.role==="driver";
