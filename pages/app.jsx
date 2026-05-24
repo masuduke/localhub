@@ -1,46 +1,53 @@
 import { useState, useRef, useEffect } from "react";
 
 // ─── API CLIENT ───────────────────────────────────────────────────────────
-let _accessToken = null;
-let _refreshing = null;
-function setAccessToken(t) { _accessToken = t; }
-function getAccessToken() { return _accessToken; }
-function clearTokens() { _accessToken = null; }
+const _apiState = { token: null, refreshing: null };
 
-async function apiFetch(url, options = {}) {
-  const headers = { "Content-Type": "application/json", ...options.headers };
-  if (_accessToken) headers["Authorization"] = `Bearer ${_accessToken}`;
-  const res = await fetch(url, { ...options, headers, credentials: "include" });
-  if (res.status === 401 && !options._retry) {
-    if (!_refreshing) _refreshing = silentRefresh().finally(() => { _refreshing = null; });
-    await _refreshing;
-    if (_accessToken) return apiFetch(url, { ...options, _retry: true });
+function setAccessToken(t) { _apiState.token = t; }
+function clearTokens() { _apiState.token = null; }
+
+async function _silentRefresh() {
+  try {
+    const r = await fetch("/api/auth/refresh", { method: "POST", credentials: "include" });
+    const data = await r.json();
+    if (data?.data?.accessToken) { _apiState.token = data.data.accessToken; return data.data; }
+  } catch (_) { _apiState.token = null; }
+  return null;
+}
+
+async function _apiFetch(url, options) {
+  const opts = options || {};
+  const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+  if (_apiState.token) headers["Authorization"] = "Bearer " + _apiState.token;
+  const res = await fetch(url, Object.assign({}, opts, { headers: headers, credentials: "include" }));
+  if (res.status === 401 && !opts._retry) {
+    if (!_apiState.refreshing) {
+      _apiState.refreshing = _silentRefresh().finally(function() { _apiState.refreshing = null; });
+    }
+    await _apiState.refreshing;
+    if (_apiState.token) return _apiFetch(url, Object.assign({}, opts, { _retry: true }));
   }
-  const json = await res.json().catch(() => ({}));
+  const json = await res.json().catch(function() { return {}; });
   if (!res.ok) { const e = new Error(json.error || "Request failed"); e.status = res.status; throw e; }
   return json.data;
 }
 
-async function silentRefresh() {
-  try {
-    const data = await fetch("/api/auth/refresh", { method: "POST", credentials: "include" }).then(r => r.json());
-    if (data?.data?.accessToken) { _accessToken = data.data.accessToken; return data.data; }
-  } catch { _accessToken = null; }
-  return null;
+function _qs(params) {
+  return new URLSearchParams(Object.fromEntries(Object.entries(params).filter(function(kv) { return kv[1]; })));
 }
 
 const API = {
-  login: (email, password) => apiFetch("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  signup: (payload) => apiFetch("/api/auth/signup", { method: "POST", body: JSON.stringify(payload) }),
-  logout: () => apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {}),
-  me: () => apiFetch("/api/auth/me"),
-  refresh: () => silentRefresh(),
-  products: (params = {}) => { const q = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([,v])=>v))); return apiFetch(`/api/products?${q}`); },
-  jobs: (params = {}) => { const q = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([,v])=>v))); return apiFetch(`/api/jobs?${q}`); },
-  notifications: () => apiFetch("/api/notifications"),
-  markAllRead: () => apiFetch("/api/notifications", { method: "PATCH" }),
-  createOrder: (payload) => apiFetch("/api/orders", { method: "POST", body: JSON.stringify(payload) }),
-  createIntent: (payload) => apiFetch("/api/payments/create-intent", { method: "POST", body: JSON.stringify(payload) }),
+  login: function(email, password) { return _apiFetch("/api/auth/login", { method: "POST", body: JSON.stringify({ email: email, password: password }) }); },
+  signup: function(payload) { return _apiFetch("/api/auth/signup", { method: "POST", body: JSON.stringify(payload) }); },
+  logout: function() { return _apiFetch("/api/auth/logout", { method: "POST" }).catch(function() {}); },
+  me: function() { return _apiFetch("/api/auth/me"); },
+  refresh: function() { return _silentRefresh(); },
+  products: function(params) { return _apiFetch("/api/products?" + _qs(params || {})); },
+  jobs: function(params) { return _apiFetch("/api/jobs?" + _qs(params || {})); },
+  notifications: function() { return _apiFetch("/api/notifications"); },
+  markAllRead: function() { return _apiFetch("/api/notifications", { method: "PATCH" }); },
+  createOrder: function(payload) { return _apiFetch("/api/orders", { method: "POST", body: JSON.stringify(payload) }); },
+  createIntent: function(payload) { return _apiFetch("/api/payments/create-intent", { method: "POST", body: JSON.stringify(payload) }); },
 };
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -923,21 +930,11 @@ export default function App(){
   const [promos,setPromos]     =useState(INIT_PROMOS);
   const [appliedPromo,setAppliedPromo]=useState(null);
   const [globalSearch,setGS]   =useState("");
-  const country=user?.country||"uk";
 
-  // Read token from URL hash (landing page redirect) or silent refresh
+  // Silent refresh on mount
   useEffect(()=>{
     (async()=>{
-      try{
-        const hash=typeof window!=="undefined"?window.location.hash:"";
-        if(hash.startsWith("#token=")){
-          const t=decodeURIComponent(hash.slice(7));
-          if(t){setAccessToken(t);window.history.replaceState(null,"",window.location.pathname);}
-          const data=await API.me();if(data?.user){setUser(data.user);}
-        } else {
-          const data=await API.refresh();if(data?.user){setUser(data.user);}
-        }
-      }catch(_){}
+      try{const data=await API.refresh();if(data?.user){setUser(data.user);}}catch(_){}
     })();
   },[]);
 
@@ -1061,6 +1058,7 @@ export default function App(){
   const approvePromo=(id)=>{setPromos(ps=>ps.map(p=>p.id===id?{...p,status:"active"}:p));fire("✅ Promo approved and live!");};
   const rejectPromo=(id)=>{setPromos(ps=>ps.map(p=>p.id===id?{...p,status:"rejected"}:p));fire("Promo rejected.");};
 
+  const country=user?.country||"uk";
   const isAdmin=user?.role==="admin";
   const isVendor=user?.role==="vendor";
   const isDriver=user?.role==="driver";
