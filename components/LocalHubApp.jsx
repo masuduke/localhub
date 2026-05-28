@@ -36,6 +36,7 @@ const API = {
   me: () => apiFetch("/api/auth/me"),
   refresh: () => silentRefresh(),
   products: (params = {}) => { const q = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([,v])=>v))); return apiFetch(`/api/products?${q}`); },
+  createProduct: (payload) => apiFetch("/api/products", { method: "POST", body: JSON.stringify(payload) }),
   jobs: (params = {}) => { const q = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([,v])=>v))); return apiFetch(`/api/jobs?${q}`); },
   createJob: (payload) => apiFetch("/api/jobs", { method: "POST", body: JSON.stringify(payload) }),
   notifications: () => apiFetch("/api/notifications"),
@@ -43,8 +44,24 @@ const API = {
   createOrder: (payload) => apiFetch("/api/orders", { method: "POST", body: JSON.stringify(payload) }),
   createIntent: (payload) => apiFetch("/api/payments/create-intent", { method: "POST", body: JSON.stringify(payload) }),
   applyToJob: (jobId, payload) => apiFetch(`/api/jobs/${jobId}/apply`, { method: "POST", body: JSON.stringify(payload) }),
+  presignUpload: (payload) => apiFetch("/api/upload/presign", { method: "POST", body: JSON.stringify(payload) }),
   generateTryOn: (payload) => apiFetch("/api/tryon/generate", { method: "POST", body: JSON.stringify(payload) }),
 };
+
+async function uploadToR2(file, uploadType) {
+  const data = await API.presignUpload({
+    filename: file.name,
+    contentType: file.type,
+    contentLength: file.size,
+    uploadType,
+  });
+  await fetch(data.uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
+  });
+  return data;
+}
 
 function shellCard(extra = {}) {
   return { background: "#ffffff", border: "1px solid #ffd6bf", borderRadius: 12, padding: 16, boxShadow:"0 8px 22px rgba(255,90,0,.08)", ...extra };
@@ -64,6 +81,18 @@ const T="#ff5a00",TL="#fff0e8",AM="#ff8a00",NV="#211a17";
 const SL="#7a6a62",RD="#e11d48",GR="#16a34a",PU="#8b5cf6",OR="#f97316";
 const FLAG={uk:"🇬🇧",bd:"🇧🇩"},CUR={uk:"£",bd:"৳"};
 const fmt=(p,c)=>c==="uk"?`£${(+p).toFixed(2)}`:`৳${Math.round(+p*130)}`;
+const normalizeProduct=(p)=>({...p,cat:p.cat||p.category||"",sales:p.sales||p.totalSales||0,revenue:p.revenue||p.totalRevenue||0});
+
+function ProductVisual({item,height=84,fontSize=38,children}) {
+  return (
+    <div style={{height,background:item.color||"#fff0e7",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize,marginBottom:8,position:"relative",overflow:"hidden"}}>
+      {item.imageUrl
+        ? <img src={item.imageUrl} alt={item.name||"Product"} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+        : (item.emoji||"📦")}
+      {children}
+    </div>
+  );
+}
 
 // ─── LOYALTY CONFIG ───────────────────────────────────────────────────────
 const POINTS_PER_UNIT={uk:10,bd:1}; // 10 pts per £1, 1 pt per ৳1
@@ -931,6 +960,7 @@ export default function App(){
   const [appliedPromo,setAppliedPromo]=useState(null);
   const [globalSearch,setGS]   =useState("");
   const [tryOnItem,setTryOnItem]=useState(null);
+  const [applyJobItem,setApplyJobItem]=useState(null);
   const country=user?.country||"uk";
   const mapApiJob=(j)=>({
     id:j.id,
@@ -976,9 +1006,10 @@ export default function App(){
   useEffect(()=>{
     API.products({country}).then(data=>{
       if(data?.products?.length) setProducts(prev=>{
-        const dbIds=new Set(data.products.map(p=>String(p.id)));
+        const dbProducts=data.products.map(normalizeProduct);
+        const dbIds=new Set(dbProducts.map(p=>String(p.id)));
         const seedOnly=prev.filter(p=>!dbIds.has(String(p.id)));
-        return [...data.products,...seedOnly];
+        return [...dbProducts,...seedOnly];
       });
     }).catch(()=>{});
   },[country]);
@@ -1090,20 +1121,22 @@ export default function App(){
   const updateDriver=(id,patch)=>setDrivers(ds=>ds.map(d=>d.id===id?{...d,...patch}:d));
   const updateVendor=(id,patch)=>setVendors(vs=>vs.map(v=>v.id===id?{...v,...patch}:v));
   const updateVendorOrder=(id,status)=>{setVO(vo=>vo.map(o=>o.id===id?{...o,status}:o));fire(`Order ${id} → ${status}`);};
-  const applyToJob=async(jobId)=>{
+  const applyToJob=async(jobId, extra={})=>{
     if(!user){setModal("login");return;}
     const target = jobs.find(j=>String(j.id)===String(jobId));
     if(!target) return;
     if((target.applied||[]).includes(user.id)){fire("You already applied to this job.");return;}
     if(_accessToken){
       try{
-        await API.applyToJob(jobId,{name:user.name,email:user.email,coverLetter:"Applied from LocalHub app"});
+        await API.applyToJob(jobId,{name:user.name,email:user.email,coverLetter:extra.coverLetter||"Applied from LocalHub app",cvUrl:extra.cvUrl||undefined});
       }catch(e){
         fire(e.message||"Could not submit application right now.");
         return;
       }
     }
     setJobs(list=>list.map(j=>String(j.id)===String(jobId)?{...j,applied:[...(j.applied||[]),user.id]}:j));
+    setApplyJobItem(null);
+    setModal(null);
     fire(`Application sent for ${target.title}`);
   };
   const createJob=async(payload)=>{
@@ -1224,7 +1257,7 @@ export default function App(){
         {tab==="ecommerce"&&<EcommercePage products={products} country={country} addToCart={addToCart} rates={rates} cart={cart} onTryOn={(item)=>{setTryOnItem(item);setModal("tryon");}}/>}
         {tab==="grocery"  &&<GroceryPage   items={INIT_GROCERY.filter(i=>i.country===country)} country={country} addToCart={addToCart} cart={cart}/>}
         {tab==="food"     &&<FoodPage       restaurants={restaurants.filter(r=>r.country===country)} country={country} addToCart={addToCart}/>}
-        {tab==="jobs"     &&<JobsPage       jobs={jobs} jobCats={jobCats} user={user} country={country} setModal={setModal} globalSearch={globalSearch} onApply={applyToJob}/>}
+        {tab==="jobs"     &&<JobsPage       jobs={jobs} jobCats={jobCats} user={user} country={country} setModal={setModal} globalSearch={globalSearch} onApply={(job)=>{if(!user){setModal("login");return;}setApplyJobItem(job);setModal("applyjob");}}/>}
         {tab==="delivery" &&<DeliveryPage   drivers={drivers.filter(d=>d.country===country&&d.status==="active")} country={country} rates={rates} placeOrder={placeOrder} user={user} setModal={setModal}/>}
         {tab==="loyalty"  &&user&&<LoyaltyPage user={user} setUser={setUser} country={country}/>}
         {tab==="loyalty"  &&!user&&<SignInPrompt msg="Sign in to view your loyalty points and rewards." setModal={setModal}/>}
@@ -1239,6 +1272,7 @@ export default function App(){
       {modal==="login"  &&<LoginModal  accounts={ALL_ACCOUNTS} onLogin={login} onClose={()=>setModal(null)} onSwitch={()=>setModal("signup")}/>}
       {modal==="signup" &&<SignupModal jobCats={jobCats} onSignup={login} onClose={()=>setModal(null)} onSwitch={()=>setModal("login")}/>}
       {modal==="postjob"&&<PostJobModal jobCats={jobCats} country={country} onCreate={createJob} onClose={()=>setModal(null)}/>}
+      {modal==="applyjob"&&applyJobItem&&user&&<ApplyJobModal job={applyJobItem} user={user} onSubmit={(payload)=>applyToJob(applyJobItem.id,payload)} onClose={()=>{setModal(null);setApplyJobItem(null);}}/>}
       {modal==="tryon"  &&tryOnItem&&<TryOnModal item={tryOnItem} country={country} onClose={()=>{setModal(null);setTryOnItem(null);}}/>}
       {modal==="chat"   &&user&&<ChatPanel user={user} onClose={()=>setModal(null)}/>}
       {modal==="cart"   &&<CartModal cart={cart} setCart={setCart} products={products} country={country} drivers={drivers.filter(d=>d.country===country&&d.isOnline&&d.status==="active")} rates={rates} placeOrder={placeOrder} user={user} setModal={setModal} onClose={()=>setModal(null)} appliedPromo={appliedPromo} calcDiscount={calcDiscount}/>}
@@ -1403,7 +1437,8 @@ function SmartDiscoveryPanel({country,products,promos,query,setTab,addToCart}){
             const discountValue=promo?(promo.type==="percent"?`${promo.discount}% OFF`:`${CUR[country]}${promo.discount} OFF`):null;
             return(
               <div key={item.id} style={{border:"1px solid #ffd7c2",borderRadius:10,padding:10,background:"#fff9f6"}}>
-                <div style={{height:84,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,background:item.color||"#fff0e7",marginBottom:8,position:"relative"}}>
+                <div style={{height:84,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,background:item.color||"#fff0e7",marginBottom:8,position:"relative",overflow:"hidden"}}>
+                  {item.imageUrl&&<img src={item.imageUrl} alt={item.name||"Product"} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>}
                   {item.emoji||"📦"}
                   {discountValue&&<span style={{position:"absolute",top:6,right:6,fontSize:9,fontWeight:800,color:"#b34700",background:"#ffe2ce",border:"1px solid #ffbf97",borderRadius:999,padding:"2px 6px"}}>{discountValue}</span>}
                 </div>
@@ -1442,7 +1477,8 @@ function EcommercePage({products,country,addToCart,rates,cart,onTryOn}){
           const tryOnEligible=/clothing|traditional/i.test(String(item.cat||""));
           return(
             <div key={item.id} style={{...card(),overflow:"hidden"}}>
-              <div style={{height:130,background:item.color||"#f1f5f9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:56,marginBottom:12,position:"relative"}}>
+              <div style={{height:130,background:item.color||"#f1f5f9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:56,marginBottom:12,position:"relative",overflow:"hidden"}}>
+                {item.imageUrl&&<img src={item.imageUrl} alt={item.name||"Product"} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>}
                 {item.emoji}
                 {inCart>0&&<div style={{position:"absolute",top:8,right:8}}><Pill bg={AM} color={NV} style={{fontSize:9}}>×{inCart}</Pill></div>}
               </div>
@@ -1547,7 +1583,7 @@ function JobsPage({jobs,jobCats,user,country,setModal,globalSearch,onApply}){
                 <div style={{fontSize:13,color:"#475569",lineHeight:1.5,marginBottom:8}}>{job.desc}</div>
                 <Pill bg="#f0fdf4" color={GR}>💰 {job.salary}</Pill>
               </div>
-              <Btn small primary={hasApplied?false:true} onClick={()=>onApply(job.id)} style={hasApplied?{borderColor:"#16a34a",color:"#16a34a"}:{}}>
+              <Btn small primary={hasApplied?false:true} onClick={()=>onApply(job)} style={hasApplied?{borderColor:"#16a34a",color:"#16a34a"}:{}}>
                 {hasApplied?"Applied":"Apply"}
               </Btn>
             </div>
@@ -1776,14 +1812,15 @@ function CartModal({cart,setCart,products,country,drivers,rates,placeOrder,user,
 function VendorDash({user,country,rates,products,setProducts,vendorOrders,updateVendorOrder,promos,setPromos,fire}){
   const [section,setSec]=useState("analytics");
   const [editItem,setEdit]=useState(null);
-  const [form,setForm]=useState({name:"",price:"",emoji:"📦",cat:"",sizes:"",stock:"",color:"#ccfbf1"});
+  const [form,setForm]=useState({name:"",price:"",emoji:"📦",cat:"",sizes:"",stock:"",color:"#ccfbf1",imageUrl:""});
+  const [uploadingProduct,setUploadingProduct]=useState(false);
   const [promoForm,setPromoForm]=useState({title:"",desc:"",discount:"",type:"percent",minOrder:"",category:"Clothing",expiresIn:"86400",emoji:"🔥",color:"#dc2626"});
   const cur=CUR[country];
   const rateKey=user.vendorType||"ecommerce";
   const rateVal=rates[rateKey]?.value||10;
   const pendingOrders=vendorOrders.filter(o=>o.status==="pending").length;
   const FLOW=[["pending","accepted","Accept",T],["accepted","ready","Ready",AM],["ready","dispatched","Dispatch",PU],["dispatched","delivered","Delivered",GR]];
-  const saveProduct=()=>{if(!form.name||!form.price)return;const p={name:form.name,price:+form.price,emoji:form.emoji,cat:form.cat,sizes:form.sizes.split(",").map(s=>s.trim()).filter(Boolean),stock:+form.stock||0,color:form.color,country,vendorId:user.id,reviews:[],sales:0,revenue:0};if(editItem==="new")setProducts(ps=>[...ps,{...p,id:Date.now()}]);else setProducts(ps=>ps.map(x=>x.id===editItem.id?{...x,...p}:x));setEdit(null);};
+  const saveProduct=async()=>{if(!form.name||!form.price)return;const p={name:form.name,price:+form.price,emoji:form.emoji,cat:form.cat,sizes:form.sizes.split(",").map(s=>s.trim()).filter(Boolean),stock:+form.stock||0,color:form.color,imageUrl:form.imageUrl,country,vendorId:user.id,reviews:[],sales:0,revenue:0};if(editItem==="new"){let created={...p,id:Date.now()};if(_accessToken){try{const data=await API.createProduct({...p,category:p.cat});if(data?.product)created=normalizeProduct(data.product);}catch(e){fire(e.message||"Product saved locally, but backend create failed.");}}setProducts(ps=>[...ps,created]);}else setProducts(ps=>ps.map(x=>x.id===editItem.id?{...x,...p}:x));setEdit(null);};
   const submitPromo=()=>{if(!promoForm.title||!promoForm.discount)return;const p={id:"p_"+Date.now(),vendorId:user.id,vendorName:user.name,...promoForm,discount:+promoForm.discount,minOrder:+promoForm.minOrder,expiresIn:+promoForm.expiresIn,country,status:"pending",createdAt:"Just now"};setPromos(ps=>[...ps,p]);fire("📋 Promo submitted for admin approval!");setPromoForm({title:"",desc:"",discount:"",type:"percent",minOrder:"",category:"Clothing",expiresIn:"86400",emoji:"🔥",color:"#dc2626"});};
   const EMOJIS=["👕","🔵","🟠","🧥","🩳","🎧","📦","🛍️","🌿","🍎"];
   const myPromos=promos.filter(p=>p.vendorId===user.id);
@@ -1835,19 +1872,20 @@ function VendorDash({user,country,rates,products,setProducts,vendorOrders,update
         <div>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
             <div style={{fontWeight:700,fontSize:15,color:NV}}>Products ({products.filter(p=>p.vendorId===user.id||p.vendorId==="a2").length})</div>
-            <Btn primary small onClick={()=>{setForm({name:"",price:"",emoji:"📦",cat:"",sizes:"S,M,L",stock:"10",color:"#ccfbf1"});setEdit("new");}}>+ Add Product</Btn>
+            <Btn primary small onClick={()=>{setForm({name:"",price:"",emoji:"📦",cat:"",sizes:"S,M,L",stock:"10",color:"#ccfbf1",imageUrl:""});setEdit("new");}}>+ Add Product</Btn>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(195px,1fr))",gap:12}}>
             {(products.filter(p=>p.vendorId===user.id||p.vendorId==="a2")).map(p=>(
               <div key={p.id} style={{...card({padding:14})}}>
-                <div style={{height:75,background:p.color||"#f1f5f9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,marginBottom:10,position:"relative"}}>
+                <div style={{height:75,background:p.color||"#f1f5f9",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,marginBottom:10,position:"relative",overflow:"hidden"}}>
+                  {p.imageUrl&&<img src={p.imageUrl} alt={p.name||"Product"} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>}
                   {p.emoji}
                   <div style={{position:"absolute",top:5,right:5}}><Pill bg={p.stock>10?"#dcfce7":p.stock>0?"#fef9c3":"#fee2e2"} color={p.stock>10?GR:p.stock>0?"#a16207":RD} style={{fontSize:9}}>×{p.stock}</Pill></div>
                 </div>
                 <div style={{fontWeight:600,fontSize:13,color:NV,marginBottom:2}}>{p.name}</div>
                 <div style={{fontSize:11,color:SL,marginBottom:6}}>{p.cat} · {cur}{p.price}</div>
                 <div style={{display:"flex",gap:5}}>
-                  <Btn small onClick={()=>{setForm({name:p.name,price:p.price,emoji:p.emoji,cat:p.cat,sizes:(p.sizes||[]).join(","),stock:p.stock,color:p.color||"#ccfbf1"});setEdit(p);}} style={{flex:1}}>Edit</Btn>
+                  <Btn small onClick={()=>{setForm({name:p.name,price:p.price,emoji:p.emoji,cat:p.cat,sizes:(p.sizes||[]).join(","),stock:p.stock,color:p.color||"#ccfbf1",imageUrl:p.imageUrl||""});setEdit(p);}} style={{flex:1}}>Edit</Btn>
                   <Btn small danger onClick={()=>setProducts(ps=>ps.filter(x=>x.id!==p.id))} style={{flex:1}}>Del</Btn>
                 </div>
               </div>
@@ -1898,6 +1936,22 @@ function VendorDash({user,country,rates,products,setProducts,vendorOrders,update
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <h3 style={{fontFamily:"Syne,sans-serif",fontSize:16,fontWeight:800,color:NV}}>{editItem==="new"?"Add Product":"Edit Product"}</h3>
               <button onClick={()=>setEdit(null)} style={{border:"none",background:"none",cursor:"pointer",fontSize:22,color:"#94a3b8"}}>✕</button>
+            </div>
+            <div style={{border:"1.5px dashed #ffc49f",borderRadius:12,padding:12,marginBottom:12,background:"#fff8f3"}}>
+              <div style={{fontSize:12,fontWeight:800,color:NV,marginBottom:6}}>Upload product photo</div>
+              {form.imageUrl&&<img src={form.imageUrl} alt="Product preview" style={{width:"100%",height:150,objectFit:"cover",borderRadius:10,marginBottom:10}}/>}
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={async e=>{
+                const file=e.target.files?.[0];if(!file)return;
+                setUploadingProduct(true);
+                try{
+                  const uploaded=await uploadToR2(file,"productImage");
+                  if(!uploaded.publicUrl) throw new Error("R2_PUBLIC_BASE_URL is missing, so the uploaded image cannot be displayed.");
+                  setForm(f=>({...f,imageUrl:uploaded.publicUrl}));
+                  fire("Product image uploaded.");
+                }catch(err){fire(err.message||"Product image upload failed.");}
+                finally{setUploadingProduct(false);e.target.value="";}
+              }} style={{fontSize:12,width:"100%"}}/>
+              <div style={{fontSize:11,color:SL,marginTop:6}}>{uploadingProduct?"Uploading to R2...":"JPG, PNG, WEBP, or GIF up to 8MB."}</div>
             </div>
             <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12}}>{EMOJIS.map(e=><button key={e} onClick={()=>setForm(f=>({...f,emoji:e}))} style={{width:30,height:30,border:`2px solid ${form.emoji===e?T:"#e2e8f0"}`,borderRadius:7,cursor:"pointer",fontSize:16,background:form.emoji===e?TL:"#fff"}}>{e}</button>)}</div>
             <Inp label="Name" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/>
@@ -2256,6 +2310,53 @@ function PostJobModal({jobCats,country,onCreate,onClose}){
       <div style={{display:"flex",gap:10}}>
         <Btn onClick={onClose} style={{flex:1}}>Cancel</Btn>
         <Btn primary onClick={submit} disabled={saving} style={{flex:2}}>{saving?"Posting...":"Post Job"}</Btn>
+      </div>
+    </ModalWrap>
+  );
+}
+
+function ApplyJobModal({job,user,onSubmit,onClose}){
+  const [coverLetter,setCoverLetter]=useState("");
+  const [cvUrl,setCvUrl]=useState("");
+  const [uploading,setUploading]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [err,setErr]=useState("");
+
+  const uploadCv=async(file)=>{
+    setErr("");
+    setUploading(true);
+    try{
+      const uploaded=await uploadToR2(file,"cv");
+      if(!uploaded.publicUrl) throw new Error("R2_PUBLIC_BASE_URL is missing, so the CV link cannot be stored.");
+      setCvUrl(uploaded.publicUrl);
+    }catch(e){
+      setErr(e.message||"CV upload failed.");
+    }finally{
+      setUploading(false);
+    }
+  };
+
+  const submit=async()=>{
+    setSaving(true);
+    await onSubmit({coverLetter:coverLetter||`Application from ${user.name}`,cvUrl});
+    setSaving(false);
+  };
+
+  return(
+    <ModalWrap onClose={onClose} wide>
+      <h2 style={{fontFamily:"Syne,sans-serif",fontSize:19,fontWeight:800,color:NV,marginBottom:4}}>Apply for {job.title}</h2>
+      <div style={{fontSize:12,color:SL,marginBottom:14}}>{job.company} · {job.location}</div>
+      <div style={{fontSize:12,fontWeight:700,color:SL,marginBottom:5}}>Cover note</div>
+      <textarea value={coverLetter} onChange={e=>setCoverLetter(e.target.value)} placeholder="Write a short message to the employer" style={{width:"100%",minHeight:110,padding:"10px 14px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,fontFamily:"inherit",resize:"vertical",marginBottom:12}}/>
+      <div style={{border:"1.5px dashed #ffc49f",borderRadius:12,padding:12,marginBottom:12,background:"#fff8f3"}}>
+        <div style={{fontSize:12,fontWeight:800,color:NV,marginBottom:6}}>CV upload</div>
+        <input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={async e=>{const file=e.target.files?.[0];if(file)await uploadCv(file);e.target.value="";}} style={{fontSize:12,width:"100%"}}/>
+        <div style={{fontSize:11,color:cvUrl?GR:SL,marginTop:6}}>{uploading?"Uploading to R2...":cvUrl?"CV uploaded and ready to submit.":"PDF, DOC, or DOCX up to 10MB."}</div>
+      </div>
+      {err&&<div style={{color:RD,fontSize:12,marginBottom:10,background:"#fee2e2",padding:"8px 12px",borderRadius:8}}>{err}</div>}
+      <div style={{display:"flex",gap:10}}>
+        <Btn onClick={onClose} style={{flex:1}}>Cancel</Btn>
+        <Btn primary onClick={submit} disabled={saving||uploading} style={{flex:2}}>{saving?"Sending...":"Send Application"}</Btn>
       </div>
     </ModalWrap>
   );

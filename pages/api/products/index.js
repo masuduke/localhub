@@ -27,13 +27,13 @@ export default async function handler(req, res) {
       if (!["vendor", "admin"].includes(payload.role)) return err(res, "Forbidden", 403);
       const vendor = await prisma.vendor.findUnique({ where: { userId: payload.sub } });
       if (!vendor) return err(res, "Vendor profile not found", 404);
-      const { name, price, emoji, color, category, sizes, stock, description } = req.body;
+      const { name, price, emoji, color, imageUrl, category, sizes, stock, description } = req.body;
       if (!name || !price || !category) return err(res, "name, price, category required", 422);
       const product = await prisma.product.create({
         data: {
           vendorId: vendor.id,
           country: vendor.country,
-          name, price: Number(price), emoji, color, category,
+          name, price: Number(price), emoji, color, imageUrl, category,
           sizes: Array.isArray(sizes) ? sizes : [],
           stock: Number(stock || 0),
           description,

@@ -230,6 +230,7 @@ model Product {
   price        Float
   emoji        String?
   color        String?
+  imageUrl     String?
   category     String
   sizes        String[]    @default([])
   stock        Int         @default(0)
