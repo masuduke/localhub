@@ -49,11 +49,21 @@ const API = {
 };
 
 async function uploadToR2(file, uploadType) {
+  const localImageFallback = () => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ publicUrl: String(reader.result || ""), key: "", localOnly: true });
+    reader.onerror = () => reject(new Error("Could not read image file."));
+    reader.readAsDataURL(file);
+  });
+  if (!_accessToken && uploadType === "productImage") return localImageFallback();
   const data = await API.presignUpload({
     filename: file.name,
     contentType: file.type,
     contentLength: file.size,
     uploadType,
+  }).catch(async e => {
+    if (e.status === 401 && uploadType === "productImage") return localImageFallback();
+    throw e;
   });
   await fetch(data.uploadUrl, {
     method: "PUT",
@@ -1947,7 +1957,7 @@ function VendorDash({user,country,rates,products,setProducts,vendorOrders,update
                   const uploaded=await uploadToR2(file,"productImage");
                   if(!uploaded.publicUrl) throw new Error("R2_PUBLIC_BASE_URL is missing, so the uploaded image cannot be displayed.");
                   setForm(f=>({...f,imageUrl:uploaded.publicUrl}));
-                  fire("Product image uploaded.");
+                  fire(uploaded.localOnly?"Image added for this product preview. Sign in with a real vendor account to upload to R2.":"Product image uploaded.");
                 }catch(err){fire(err.message||"Product image upload failed.");}
                 finally{setUploadingProduct(false);e.target.value="";}
               }} style={{fontSize:12,width:"100%"}}/>
